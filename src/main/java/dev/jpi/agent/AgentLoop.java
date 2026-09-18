@@ -222,6 +222,11 @@ public class AgentLoop {
                         new ExecResult(errorResult(toolCall, "Tool not found: " + toolCall.name()), false)));
                 continue;
             }
+            String validationError = validate(tool, toolCall);
+            if (validationError != null) {
+                prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, validationError), false)));
+                continue;
+            }
             AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(tool, toolCall);
             if (decision.block()) {
                 prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, decision.reason()), false)));
@@ -286,6 +291,11 @@ public class AgentLoop {
             return new ExecResult(errorResult(toolCall, "Tool not found: " + toolCall.name()), false);
         }
 
+        String validationError = validate(tool, toolCall);
+        if (validationError != null) {
+            return new ExecResult(errorResult(toolCall, validationError), false);
+        }
+
         AgentLoopConfig.BeforeToolCallResult decision =
                 config.beforeToolCall().beforeToolCall(tool, toolCall);
         if (decision.block()) {
@@ -314,6 +324,17 @@ public class AgentLoop {
         return new ToolResultMessage(
                 toolCall.id(), toolCall.name(), List.of(new Content.Text("Error: " + errorMessage)),
                 null, true, System.currentTimeMillis());
+    }
+
+    /**
+     * Arguments are checked against the tool's declared schema before the permission
+     * gate and execution: a schema violation is reported to the model as an error
+     * naming the bad argument, so it can re-issue the call.
+     */
+    private static String validate(AgentTool tool, Content.ToolCall toolCall) {
+        List<String> problems = ToolArguments.validate(tool.parameters(), toolCall.arguments());
+        return problems.isEmpty() ? null
+                : "Validation failed for tool \"" + toolCall.name() + "\":\n" + String.join("\n", problems);
     }
 
     private AssistantMessage streamAssistantResponse(Model model, Context llmContext,

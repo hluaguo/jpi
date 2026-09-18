@@ -133,6 +133,66 @@ class AgentLoopTest {
     }
 
     @Test
+    void invalidToolArgumentsBecomeAnErrorResultWithoutExecutingOrGating() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "read", Map.of("path", 42))
+                .text("done")
+                .build();
+        List<String> calls = new ArrayList<>();
+        AgentTool read = new AgentTool() {
+            @Override
+            public String name() {
+                return "read";
+            }
+
+            @Override
+            public String description() {
+                return "read a file";
+            }
+
+            @Override
+            public Map<String, Object> parameters() {
+                return Map.of("type", "object",
+                        "properties", Map.of("path", Map.of("type", "string")),
+                        "required", List.of("path"));
+            }
+
+            @Override
+            public AgentToolResult execute(String toolCallId, Map<String, Object> args,
+                                           CancellationToken signal, Consumer<Map<String, Object>> onUpdate) {
+                calls.add("executed");
+                return AgentToolResult.text("nope");
+            }
+        };
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .beforeToolCall((t, call) -> {
+                    calls.add("gated");
+                    return AgentLoopConfig.BeforeToolCallResult.allow();
+                })
+                .build();
+        AgentLoop loop = new AgentLoop(provider, config);
+
+        List<AgentEvent> events = new ArrayList<>();
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(read)),
+                List.of(UserMessage.of("go")),
+                events::add);
+
+        // validation precedes the permission gate and execution
+        assertEquals(List.of(), calls);
+
+        ToolResultMessage toolResult = (ToolResultMessage) result.messages().get(2);
+        assertTrue(toolResult.isError());
+        assertEquals("Error: Validation failed for tool \"read\":\n  - path: expected string, got integer",
+                ((Content.Text) toolResult.content().get(0)).text());
+
+        // the turn continues: the model sees the error result and can re-issue
+        assertEquals(2, provider.calls().size());
+        assertEquals(StopReason.STOP, result.stopReason());
+    }
+
+    @Test
     void lengthStopFailsAllToolCallsAsTruncatedWithoutExecuting() {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .truncatedToolCall("call_1", "read", Map.of("path", "a.txt"))
