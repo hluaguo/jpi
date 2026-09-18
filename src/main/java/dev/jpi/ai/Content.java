@@ -4,9 +4,13 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Content blocks. A {@link dev.jpi.ai.UserMessage} carries text/image blocks, an
- * {@link AssistantMessage} carries text/thinking/toolCall blocks, a
- * {@link dev.jpi.ai.ToolResultMessage} carries text/image blocks.
+ * Content blocks.
+ *
+ * <p><em>Why one sealed union instead of per-role types:</em> providers differ on
+ * which block may appear where (user messages: text/image; assistant: text/thinking/
+ * toolCall; tool results: text/image) — a single closed union keeps the model honest
+ * for every role while adapters stay responsible for rejecting combinations their
+ * wire format forbids.
  */
 public sealed interface Content permits Content.Text, Content.Image, Content.Thinking, Content.ToolCall {
 

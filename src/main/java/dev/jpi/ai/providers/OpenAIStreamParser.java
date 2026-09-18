@@ -62,6 +62,9 @@ final class OpenAIStreamParser {
     }
 
     private void handle(JsonNode node) {
+        if (terminal) {
+            return; // stray chunks after [DONE] must not reach the finished stream
+        }
         readUsage(node.path("usage"));
 
         JsonNode choices = node.path("choices");
@@ -153,15 +156,20 @@ final class OpenAIStreamParser {
         }
     }
 
-    /** Emits the terminal Done, unless an earlier event already ended the stream. */
+    /** Emits the terminal event; an ERROR stop reason must ride on Error, not Done. */
     private void finish() {
         if (terminal) {
             return;
         }
         closeOpenBlocks();
         terminal = true;
-        out.push(new AssistantMessageEvent.Done(
-                finalMessage(stopReason == null ? StopReason.STOP : stopReason)));
+        StopReason reason = stopReason == null ? StopReason.STOP : stopReason;
+        if (reason == StopReason.ERROR) {
+            out.push(new AssistantMessageEvent.Error(
+                    finalMessage(reason).withErrorMessage("content filter stopped the response")));
+        } else {
+            out.push(new AssistantMessageEvent.Done(finalMessage(reason)));
+        }
     }
 
     private AssistantMessage partial() {

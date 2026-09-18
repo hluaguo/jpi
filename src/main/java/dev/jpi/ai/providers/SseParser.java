@@ -17,7 +17,6 @@ public final class SseParser {
         this.handler = handler;
     }
 
-    /** Consumes one raw line (no trailing newline). */
     public void processLine(String line) {
         if (line.isEmpty()) {
             dispatch();

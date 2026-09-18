@@ -48,7 +48,6 @@ public final class ScriptedProvider implements StreamFn {
         return new Builder();
     }
 
-    /** The LLM calls made so far, in order. */
     public synchronized List<LlmCall> calls() {
         return List.copyOf(calls);
     }

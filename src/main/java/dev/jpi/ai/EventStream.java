@@ -9,19 +9,21 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * A single-consumer push/pull async event queue that terminates on a "complete" event
+ * A single-consumer push/pull event queue that terminates on a "complete" event
  * or an explicit {@link #end}, and exposes the final result as a future.
  *
- * <p>This mirrors pi's {@code EventStream}: a producer pushes events of type {@code T}
- * ({@link #push}); a consumer iterates and receives them in order. Iteration stops at
- * the first event satisfying the {@code isComplete} predicate — the <em>terminal
- * event</em> — or when the producer calls {@link #end}. The result of type {@code R}
- * is extracted from the terminal event via {@code extractResult}, or supplied directly
- * by {@link #end}, and is available from {@link #result()}.
+ * <p><em>Why:</em> providers deliver callbacks on network threads while consumers
+ * want a plain blocking for-each and one final value. Funneling every provider
+ * through this queue decouples those two worlds: the producer can push as fast or
+ * as slow as the wire delivers, the consumer reads with ordinary iteration, and
+ * the result future gives callers that only care about the outcome a cheap handle.
+ * The completion predicate is injected so each provider's own "done" convention
+ * collapses into one shared mechanism instead of one wrapper class per provider.
  *
- * <p>Failures are data, not exceptions: the caller inspects the result, the stream
- * never throws across the boundary. Misuse (pushing after the stream finished) is a
- * local programming error and throws {@link IllegalStateException}.
+ * <p>Failures are data, not exceptions: a failed stream is still a well-formed
+ * stream whose result says so, because the loop must never catch provider
+ * exceptions to stay a total function. Misuse (pushing after finish) is a local
+ * programming error and throws {@link IllegalStateException}.
  *
  * @param <T> event type
  * @param <R> result type
@@ -45,8 +47,8 @@ public class EventStream<T, R> implements Iterable<T> {
     }
 
     /**
-     * Appends an event. If the event is terminal (satisfies {@code isComplete}), the
-     * stream is finished and its result is extracted from this event.
+     * Appends an event; if it satisfies {@code isComplete} the stream finishes and the
+     * result is extracted from it.
      *
      * @throws IllegalStateException if the stream has already finished
      */
@@ -61,16 +63,13 @@ public class EventStream<T, R> implements Iterable<T> {
     }
 
     /**
-     * Finishes the stream without a terminal event: consumers still receive all
-     * previously pushed events, then iteration ends with the given result.
-     *
-     * @throws IllegalStateException if the stream has already finished
+     * Finishes the stream without a terminal event; consumers still receive every
+     * previously pushed event.
      */
     public synchronized void end(R result) {
         if (finished) {
             throw new IllegalStateException("stream already finished");
         }
-        queue.add(END);
         finish(result);
     }
 
@@ -82,15 +81,11 @@ public class EventStream<T, R> implements Iterable<T> {
         }
     }
 
-    /**
-     * Returns the future holding the stream's result; completes when the stream
-     * finishes (terminal event or {@link #end}).
-     */
     public CompletableFuture<R> result() {
         return result;
     }
 
-    /** Single-shot iterator; blocks while waiting for the next event. */
+    /** Single-shot; blocks until the next event arrives. */
     @Override
     public Iterator<T> iterator() {
         return new Iterator<>() {

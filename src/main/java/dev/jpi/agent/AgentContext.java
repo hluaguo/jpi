@@ -15,7 +15,6 @@ public record AgentContext(String systemPrompt, List<Message> messages, List<Age
         tools = tools == null ? List.of() : List.copyOf(tools);
     }
 
-    /** The wire-level tool declarations for this context. */
     public List<dev.jpi.ai.Tool> toolDefinitions() {
         return tools.stream()
                 .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))

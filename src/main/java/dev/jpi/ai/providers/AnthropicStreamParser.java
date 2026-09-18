@@ -54,6 +54,9 @@ final class AnthropicStreamParser {
     }
 
     private void handle(JsonNode node) {
+        if (terminal) {
+            return; // stray events after message_stop/error must not reach the finished stream
+        }
         switch (node.path("type").asText()) {
             case "message_start" -> {
                 usage = readUsage(node.path("message").path("usage"), usage, true);

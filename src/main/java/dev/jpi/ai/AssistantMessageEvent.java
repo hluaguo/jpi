@@ -1,9 +1,14 @@
 package dev.jpi.ai;
 
 /**
- * The unified streaming protocol every provider normalizes to. Each event carries the
- * live partial {@link AssistantMessage} ("response so far"); the terminal events are
- * {@link Done} and {@link Error}, whose partial is the final message.
+ * The unified streaming protocol every provider normalizes to.
+ *
+ * <p><em>Why:</em> one event vocabulary is what lets the agent loop (and any UI)
+ * treat Anthropic, OpenAI-compatible endpoints, and test fakes identically — provider
+ * quirks are absorbed in the adapters, never downstream. Every event carries the live
+ * partial {@link AssistantMessage} so a UI can render "response so far" without
+ * reassembling deltas itself; the terminal events ({@link Done}, {@link Error})
+ * carry the final message, which is the single artifact the transcript keeps.
  */
 public sealed interface AssistantMessageEvent
         permits AssistantMessageEvent.Start, AssistantMessageEvent.TextStart,
@@ -13,10 +18,9 @@ public sealed interface AssistantMessageEvent
         AssistantMessageEvent.ToolCallDelta, AssistantMessageEvent.ToolCallEnd,
         AssistantMessageEvent.Done, AssistantMessageEvent.Error {
 
-    /** The partial message at the time of this event; final for terminal events. */
+    /** The response so far; the final message on terminal events. */
     AssistantMessage partial();
 
-    /** Whether this event ends the stream. */
     default boolean isTerminal() {
         return this instanceof Done || this instanceof Error;
     }

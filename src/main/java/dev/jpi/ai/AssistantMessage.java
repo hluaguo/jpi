@@ -3,10 +3,15 @@ package dev.jpi.ai;
 import java.util.List;
 
 /**
- * An assistant message; content is text/thinking/toolCall blocks. A message with
- * {@code stopReason == PENDING} is the partial "response so far" carried by streaming
- * events. Failures produce a well-formed message with {@code stopReason == ERROR} or
- * {@code ABORTED} and a non-null {@code errorMessage}.
+ * An assistant message; content is text/thinking/toolCall blocks.
+ *
+ * <p><em>Why immutable with a PENDING state:</em> during streaming the same record
+ * doubles as the "response so far" — each event replaces it with a new snapshot, so
+ * anything holding an older partial (a UI, a log) can never observe later mutation.
+ * <em>Why failures are well-formed messages:</em> a failed or aborted call still ends
+ * in the transcript with {@code stopReason == ERROR}/{@code ABORTED} and an
+ * {@code errorMessage}, which is why the loop never has to catch provider exceptions
+ * and every consumer handles exactly one message shape.
  */
 public record AssistantMessage(
         String api,
@@ -24,7 +29,6 @@ public record AssistantMessage(
         stopReason = stopReason == null ? StopReason.PENDING : stopReason;
     }
 
-    /** An empty pending partial for the given model. */
     public static AssistantMessage pending(Model model) {
         return new AssistantMessage(model.api(), model.provider(), model.id(),
                 List.of(), Usage.ZERO, StopReason.PENDING, null, System.currentTimeMillis());

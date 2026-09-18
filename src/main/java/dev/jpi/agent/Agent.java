@@ -143,7 +143,6 @@ public final class Agent {
         return drained;
     }
 
-    /** Drains all queued follow-up messages. */
     private List<Message> drainFollowUps() {
         List<Message> drained = new ArrayList<>();
         Message message;
@@ -195,8 +194,8 @@ public final class Agent {
     // ------------------------------------------------------------- listeners
 
     /**
-     * Subscribes a listener; invoked synchronously in subscription order for every
-     * {@link AgentEvent}.
+     * Subscribes a listener; events arrive synchronously in subscription order, on
+     * whatever thread the loop is running on.
      *
      * @return a runnable that unsubscribes the listener
      */
@@ -213,17 +212,17 @@ public final class Agent {
 
     // ------------------------------------------------------------------- run
 
-    /** Appends a user message and runs the loop until it finishes. Blocks the caller. */
+    /** Appends a user message and runs the loop; blocks the caller until the run ends. */
     public void prompt(String text) {
         prompt(List.of(UserMessage.of(text)));
     }
 
-    /** Appends the given messages and runs the loop until it finishes. Blocks the caller. */
+    /** Appends the given messages and runs the loop; blocks the caller. */
     public void prompt(List<Message> prompts) {
         run(prompts);
     }
 
-    /** Resumes the loop without appending a new user message. Blocks the caller. */
+    /** Resumes the loop without appending a new user message; blocks the caller. */
     public void continueRun() {
         run(List.of());
     }
@@ -253,7 +252,6 @@ public final class Agent {
         steering.add(UserMessage.of(text));
     }
 
-    /** Queues a steering message. */
     public void steer(Message message) {
         steering.add(message);
     }
@@ -263,7 +261,6 @@ public final class Agent {
         followUps.add(UserMessage.of(text));
     }
 
-    /** Queues a follow-up message. */
     public void followUp(Message message) {
         followUps.add(message);
     }
@@ -285,8 +282,9 @@ public final class Agent {
     }
 
     /**
-     * A future that completes when the current (or most recent) run has finished and
-     * its {@code agent_end} listeners have settled.
+     * A future that completes only after the run ended <em>and</em> its {@code
+     * agent_end} listeners have returned — callers that must not race the UI use this
+     * rather than watching {@link #isStreaming}.
      */
     public CompletableFuture<Void> waitForIdle() {
         return idle;

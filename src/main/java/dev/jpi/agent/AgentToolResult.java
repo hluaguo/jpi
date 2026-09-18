@@ -20,7 +20,6 @@ public record AgentToolResult(List<Content> content, Map<String, Object> details
         details = details == null ? Map.of() : Map.copyOf(details);
     }
 
-    /** Convenience result for a plain-text, non-terminating tool output. */
     public static AgentToolResult text(String text) {
         return new AgentToolResult(List.of(new Content.Text(text)), Map.of(), null, false);
     }

@@ -59,9 +59,8 @@ public class AgentLoop {
     }
 
     /**
-     * Runs the loop: injects {@code prompts}, streams assistant responses, executes
-     * tool calls, and repeats until the model stops calling tools. Events are emitted
-     * synchronously to {@code listener}.
+     * Runs turns until the model stops calling tools and no queued messages remain;
+     * emits lifecycle events synchronously to {@code listener}.
      */
     public LoopResult run(Model model, AgentContext context, List<Message> prompts,
                           CancellationToken signal, Consumer<AgentEvent> listener) {
@@ -171,7 +170,6 @@ public class AgentLoop {
         return new LoopResult(List.copyOf(newMessages), stopReason);
     }
 
-    /** Executes a batch of tool calls, per the configured execution mode. */
     private List<ExecResult> executeToolCalls(AgentContext context, List<Content.ToolCall> toolCalls,
                                               CancellationToken signal, Consumer<AgentEvent> emit) {
         return config.toolExecution() == AgentLoopConfig.ToolExecution.PARALLEL
@@ -179,7 +177,6 @@ public class AgentLoop {
                 : executeToolCallsSequential(context, toolCalls, signal, emit);
     }
 
-    /** Sequential mode: one at a time, in source order; abort checked between calls. */
     private List<ExecResult> executeToolCallsSequential(AgentContext context, List<Content.ToolCall> toolCalls,
                                                         CancellationToken signal, Consumer<AgentEvent> emit) {
         List<ExecResult> results = new ArrayList<>();
@@ -201,9 +198,9 @@ public class AgentLoop {
     }
 
     /**
-     * Parallel mode: all calls are prepared sequentially (so permission gates stay
-     * ordered), then executed concurrently; {@code tool_execution_end} events are
-     * emitted in completion order while the returned results keep source order.
+     * Prepared sequentially so permission gates stay ordered; executed concurrently.
+     * End events follow completion order (what a UI wants) while the returned results
+     * keep source order (what the transcript wants).
      */
     private List<ExecResult> executeToolCallsParallel(AgentContext context, List<Content.ToolCall> toolCalls,
                                                       CancellationToken signal, Consumer<AgentEvent> emit) {
@@ -257,7 +254,6 @@ public class AgentLoop {
         return results;
     }
 
-    /** Executes one prepared call on a worker thread, emitting its end event on completion. */
     private ExecResult runPrepared(AgentContext context, Prepared prepared,
                                    CancellationToken signal, Consumer<AgentEvent> emit) {
         Content.ToolCall toolCall = prepared.call();
@@ -277,7 +273,6 @@ public class AgentLoop {
         return new ExecResult(toolResult, result.terminate());
     }
 
-    /** Prepares, executes, and finalizes a single tool call. */
     private ExecResult executeOneToolCall(AgentContext context, Content.ToolCall toolCall,
                                           CancellationToken signal, Consumer<AgentEvent> emit) {
         AgentTool tool = context.tools().stream()
@@ -317,11 +312,6 @@ public class AgentLoop {
                 null, true, System.currentTimeMillis());
     }
 
-    /**
-     * Streams one assistant response: emits {@code message_start} on the stream's
-     * start, {@code message_update} per delta, and {@code message_end} with the final
-     * message, which is also appended to the transcript.
-     */
     private AssistantMessage streamAssistantResponse(Model model, Context llmContext,
                                                      List<Message> messages, List<Message> newMessages,
                                                      Consumer<AgentEvent> emit) {

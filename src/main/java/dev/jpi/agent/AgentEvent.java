@@ -22,39 +22,34 @@ public sealed interface AgentEvent
     record Start() implements AgentEvent {
     }
 
-    /** A turn began; {@code turnIndex} counts from 0. */
     record TurnStart(int turnIndex) implements AgentEvent {
     }
 
-    /** A message was added to the transcript: an injected prompt/steering message, or the assistant partial. */
+    /** An injected prompt/steering message, or the assistant partial. */
     record MessageStart(Message message) implements AgentEvent {
     }
 
-    /** The assistant partial advanced; carries the raw {@link AssistantMessageEvent}. */
+    /** Carries the raw {@link AssistantMessageEvent}. */
     record MessageUpdate(AssistantMessageEvent update) implements AgentEvent {
     }
 
-    /** A message reached its final form. */
     record MessageEnd(Message message) implements AgentEvent {
     }
 
-    /** A tool call started executing. */
     record ToolExecutionStart(String toolCallId, String toolName, Map<String, Object> args) implements AgentEvent {
     }
 
-    /** A tool streamed partial output. */
     record ToolExecutionUpdate(String toolCallId, Map<String, Object> partial) implements AgentEvent {
     }
 
-    /** A tool call finished; carries the finalized tool result message. */
     record ToolExecutionEnd(String toolCallId, String toolName, ToolResultMessage result) implements AgentEvent {
     }
 
-    /** A turn finished: the final assistant message and its tool results (if any). */
+    /** Final assistant message plus its tool results, in transcript order. */
     record TurnEnd(AssistantMessage assistant, List<ToolResultMessage> toolResults) implements AgentEvent {
     }
 
-    /** The run ended; carries all messages added during the run. */
+    /** Carries all messages added during the run. */
     record End(List<Message> messages) implements AgentEvent {
     }
 }
