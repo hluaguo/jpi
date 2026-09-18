@@ -59,7 +59,7 @@ public final class AnthropicProvider implements StreamFn {
                     .header("Content-Type", "application/json")
                     .header("x-api-key", effectiveKey)
                     .header("anthropic-version", "2023-06-01")
-                    .POST(HttpRequest.BodyPublishers.ofString(Json.write(buildRequest(model, context))))
+                    .POST(HttpRequest.BodyPublishers.ofString(Json.write(buildRequest(model, context, options.promptCaching()))))
                     .build();
         } catch (Exception e) {
             fail(out, failure(model, "failed to build request: " + e.getMessage(), ErrorKind.UNKNOWN));
@@ -123,16 +123,41 @@ public final class AnthropicProvider implements StreamFn {
      * (tool results ride on user messages), and tool declarations.
      */
     static Map<String, Object> buildRequest(Model model, Context context) {
+        return buildRequest(model, context, true);
+    }
+
+    /**
+     * Builds the request body as above; with {@code promptCaching}, three ephemeral
+     * cache breakpoints are marked — the system prompt (as a block array), the last
+     * tool, and the last block of the last user message — so multi-turn runs hit the
+     * provider's prefix cache instead of repaying full input price per turn.
+     */
+    static Map<String, Object> buildRequest(Model model, Context context, boolean promptCaching) {
+        Map<String, Object> cacheControl = promptCaching ? Map.of("type", "ephemeral") : null;
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model.id());
         request.put("max_tokens", model.maxTokens());
         request.put("stream", true);
         if (context.systemPrompt() != null) {
-            request.put("system", context.systemPrompt());
+            if (cacheControl == null) {
+                request.put("system", context.systemPrompt());
+            } else {
+                Map<String, Object> block = new LinkedHashMap<>();
+                block.put("type", "text");
+                block.put("text", context.systemPrompt());
+                block.put("cache_control", cacheControl);
+                request.put("system", List.of(block));
+            }
         }
         List<Map<String, Object>> messages = new ArrayList<>();
         for (Message message : context.messages()) {
             messages.add(toWireMessage(message));
+        }
+        if (cacheControl != null && !messages.isEmpty()) {
+            Map<String, Object> last = messages.get(messages.size() - 1);
+            if ("user".equals(last.get("role"))) {
+                markLastBlock((List<Map<String, Object>>) last.get("content"), cacheControl);
+            }
         }
         request.put("messages", messages);
         if (!context.tools().isEmpty()) {
@@ -144,9 +169,19 @@ public final class AnthropicProvider implements StreamFn {
                 wire.put("input_schema", tool.parameters());
                 tools.add(wire);
             }
+            if (cacheControl != null) {
+                markLastBlock(tools, cacheControl);
+            }
             request.put("tools", tools);
         }
         return request;
+    }
+
+    /** Adds {@code cacheControl} to the final block in place; the wire maps are locally built. */
+    private static void markLastBlock(List<Map<String, Object>> blocks, Map<String, Object> cacheControl) {
+        if (!blocks.isEmpty()) {
+            blocks.get(blocks.size() - 1).put("cache_control", cacheControl);
+        }
     }
 
     private static Map<String, Object> toWireMessage(Message message) {

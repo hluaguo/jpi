@@ -54,12 +54,15 @@ class AnthropicProviderTest {
 
         Map<String, Object> request = AnthropicProvider.buildRequest(MODEL, context);
 
+        // default (prompt caching ON): system becomes a block array, and exactly
+        // three breakpoints are marked — system, the last tool, the last block of
+        // the last user message. Earlier blocks stay unmarked.
         String expected = """
                 {
                   "model": "claude-sonnet-4-5",
                   "max_tokens": 4096,
                   "stream": true,
-                  "system": "be nice",
+                  "system": [{"type": "text", "text": "be nice", "cache_control": {"type": "ephemeral"}}],
                   "messages": [
                     {"role": "user", "content": [
                       {"type": "text", "text": "hi"},
@@ -70,8 +73,68 @@ class AnthropicProviderTest {
                       {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "SF"}}
                     ]},
                     {"role": "user", "content": [
-                      {"type": "tool_result", "tool_use_id": "toolu_1", "content": [{"type": "text", "text": "sunny"}]}
+                      {"type": "tool_result", "tool_use_id": "toolu_1", "content": [{"type": "text", "text": "sunny"}], "cache_control": {"type": "ephemeral"}}
                     ]}
+                  ],
+                  "tools": [
+                    {"name": "get_weather", "description": "get it", "input_schema": {"type": "object"}, "cache_control": {"type": "ephemeral"}}
+                  ]
+                }
+                """;
+        JsonNode expectedTree = Json.MAPPER.readTree(expected);
+        JsonNode actualTree = Json.MAPPER.readTree(Json.write(request));
+        assertEquals(expectedTree, actualTree);
+    }
+
+    @Test
+    void requestMarksOnlyTheLastToolAndLastUserBlockForCaching() throws Exception {
+        Context context = new Context(
+                null,
+                List.of(
+                        new UserMessage(List.of(new Content.Text("hi")), 1),
+                        new UserMessage(List.of(new Content.Text("again")), 2)),
+                List.of(new Tool("get_weather", "get it", Map.of("type", "object")),
+                        new Tool("read", "read it", Map.of("type", "object"))));
+
+        Map<String, Object> request = AnthropicProvider.buildRequest(MODEL, context);
+
+        String expected = """
+                {
+                  "model": "claude-sonnet-4-5",
+                  "max_tokens": 4096,
+                  "stream": true,
+                  "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+                    {"role": "user", "content": [{"type": "text", "text": "again", "cache_control": {"type": "ephemeral"}}]}
+                  ],
+                  "tools": [
+                    {"name": "get_weather", "description": "get it", "input_schema": {"type": "object"}},
+                    {"name": "read", "description": "read it", "input_schema": {"type": "object"}, "cache_control": {"type": "ephemeral"}}
+                  ]
+                }
+                """;
+        JsonNode expectedTree = Json.MAPPER.readTree(expected);
+        JsonNode actualTree = Json.MAPPER.readTree(Json.write(request));
+        assertEquals(expectedTree, actualTree);
+    }
+
+    @Test
+    void promptCachingOffLeavesTheRequestUnmarked() throws Exception {
+        Context context = new Context(
+                "be nice",
+                List.of(new UserMessage(List.of(new Content.Text("hi")), 1)),
+                List.of(new Tool("get_weather", "get it", Map.of("type", "object"))));
+
+        Map<String, Object> request = AnthropicProvider.buildRequest(MODEL, context, false);
+
+        String expected = """
+                {
+                  "model": "claude-sonnet-4-5",
+                  "max_tokens": 4096,
+                  "stream": true,
+                  "system": "be nice",
+                  "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
                   ],
                   "tools": [
                     {"name": "get_weather", "description": "get it", "input_schema": {"type": "object"}}
