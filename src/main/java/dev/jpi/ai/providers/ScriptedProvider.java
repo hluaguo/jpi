@@ -85,6 +85,27 @@ public final class ScriptedProvider implements StreamFn {
             });
         }
 
+        /** One call producing several tool calls (one response), ending with {@code done(TOOL_USE)}. */
+        public Builder toolCalls(List<Content.ToolCall> calls) {
+            return add((model, context) -> {
+                AssistantMessageEventStream stream = new AssistantMessageEventStream();
+                AssistantMessage partial = AssistantMessage.pending(model);
+                stream.push(new AssistantMessageEvent.Start(partial));
+                List<Content> content = new ArrayList<>();
+                for (Content.ToolCall call : calls) {
+                    content.add(call);
+                    stream.push(new AssistantMessageEvent.ToolCallStart(call.id(), call.name(), partial.withContent(content)));
+                    stream.push(new AssistantMessageEvent.ToolCallDelta(call.id(), Json.write(call.arguments()),
+                            partial.withContent(content)));
+                    stream.push(new AssistantMessageEvent.ToolCallEnd(call.id(), partial.withContent(content)));
+                }
+                partial = partial.withContent(content);
+                partial = partial.withStopReason(StopReason.TOOL_USE);
+                stream.push(new AssistantMessageEvent.Done(partial));
+                return stream;
+            });
+        }
+
         /** One call producing a single tool call ending with {@code done(TOOL_USE)}. */
         public Builder toolCall(String id, String name, Map<String, Object> arguments) {
             String argsJson = Json.write(arguments);
@@ -98,6 +119,24 @@ public final class ScriptedProvider implements StreamFn {
                 partial = partial.withContent(List.of(new Content.ToolCall(id, name, arguments)));
                 stream.push(new AssistantMessageEvent.ToolCallEnd(id, partial));
                 partial = partial.withStopReason(StopReason.TOOL_USE);
+                stream.push(new AssistantMessageEvent.Done(partial));
+                return stream;
+            });
+        }
+
+        /** One call producing a tool call whose stream ends truncated ({@code done(LENGTH)}). */
+        public Builder truncatedToolCall(String id, String name, Map<String, Object> arguments) {
+            String argsJson = Json.write(arguments);
+            return add((model, context) -> {
+                AssistantMessageEventStream stream = new AssistantMessageEventStream();
+                AssistantMessage partial = AssistantMessage.pending(model);
+                stream.push(new AssistantMessageEvent.Start(partial));
+                partial = partial.withContent(List.of(new Content.ToolCall(id, name, Map.of())));
+                stream.push(new AssistantMessageEvent.ToolCallStart(id, name, partial));
+                stream.push(new AssistantMessageEvent.ToolCallDelta(id, argsJson, partial));
+                partial = partial.withContent(List.of(new Content.ToolCall(id, name, arguments)));
+                stream.push(new AssistantMessageEvent.ToolCallEnd(id, partial));
+                partial = partial.withStopReason(StopReason.LENGTH);
                 stream.push(new AssistantMessageEvent.Done(partial));
                 return stream;
             });
