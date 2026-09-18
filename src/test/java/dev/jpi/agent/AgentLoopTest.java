@@ -383,6 +383,43 @@ class AgentLoopTest {
     }
 
     @Test
+    void prepareNextTurnSwapExecutesTheSwappedInTools() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "original", Map.of())
+                .toolCall("call_2", "swapped", Map.of())
+                .text("after swap")
+                .build();
+        List<String> executed = new ArrayList<>();
+        AgentTool original = tool("original", args -> {
+            executed.add("original");
+            return AgentToolResult.text("original ran");
+        });
+        AgentTool swapped = tool("swapped", args -> {
+            executed.add("swapped");
+            return AgentToolResult.text("swapped ran");
+        });
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .prepareNextTurn((model, ctx, lastTurn) -> new AgentLoopConfig.TurnPlan(
+                        model, new AgentContext(ctx.systemPrompt(), ctx.messages(), List.of(swapped))))
+                .build();
+        AgentLoop loop = new AgentLoop(provider, config);
+
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(original)),
+                List.of(UserMessage.of("go")));
+
+        // turn 1 runs the original toolset; from turn 2 execution must resolve tools
+        // from the prepareNextTurn context, not the original one
+        assertEquals(List.of("original", "swapped"), executed);
+        ToolResultMessage first = (ToolResultMessage) result.messages().get(2);
+        assertFalse(first.isError());
+        ToolResultMessage second = (ToolResultMessage) result.messages().get(4);
+        assertFalse(second.isError(),
+                "swapped-in tool must execute, got: " + ((Content.Text) second.content().get(0)).text());
+    }
+
+    @Test
     void parallelToolExecutionEndsInCompletionOrderButMessagesStayInSourceOrder() throws Exception {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .toolCalls(List.of(
