@@ -125,7 +125,7 @@ final class AnthropicStreamParser {
                     case "thinking" -> out.push(new AssistantMessageEvent.ThinkingEnd(partial()));
                     case "tool_use" -> {
                         String id = toolCallId(index);
-                        Map<String, Object> arguments = parseArguments(toolJson.get(index).toString());
+                        Map<String, Object> arguments = JsonRepair.parseArguments(toolJson.get(index).toString());
                         content.set(index, new Content.ToolCall(id, toolCallName(index), arguments));
                         out.push(new AssistantMessageEvent.ToolCallEnd(id, partial()));
                     }
@@ -199,16 +199,6 @@ final class AnthropicStreamParser {
         }
     }
 
-    private static Map<String, Object> parseArguments(String json) {
-        if (json == null || json.isBlank()) {
-            return Map.of();
-        }
-        try {
-            return Json.MAPPER.readValue(json, Map.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("malformed tool arguments: " + json, e);
-        }
-    }
 
     private static StopReason mapStopReason(String anthropicReason) {
         return switch (anthropicReason) {

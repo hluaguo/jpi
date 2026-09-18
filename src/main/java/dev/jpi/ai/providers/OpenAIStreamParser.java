@@ -148,7 +148,7 @@ final class OpenAIStreamParser {
         indices.sort(Integer::compareTo);
         for (int index : indices) {
             String id = toolIdByIndex.get(index);
-            Map<String, Object> arguments = parseArguments(toolArgsByIndex.get(index).toString());
+            Map<String, Object> arguments = JsonRepair.parseArguments(toolArgsByIndex.get(index).toString());
             int contentIndex = contentIndexById.get(id);
             Content.ToolCall started = (Content.ToolCall) content.get(contentIndex);
             content.set(contentIndex, new Content.ToolCall(id, started.name(), arguments));
@@ -188,16 +188,6 @@ final class OpenAIStreamParser {
         }
     }
 
-    private static Map<String, Object> parseArguments(String json) {
-        if (json == null || json.isBlank()) {
-            return Map.of();
-        }
-        try {
-            return Json.MAPPER.readValue(json, Map.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("malformed tool arguments: " + json, e);
-        }
-    }
 
     private static StopReason mapStopReason(String finishReason) {
         return switch (finishReason) {

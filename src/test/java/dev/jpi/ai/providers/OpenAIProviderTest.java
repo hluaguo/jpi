@@ -133,6 +133,25 @@ class OpenAIProviderTest {
     }
 
     @Test
+    void sseRawControlCharactersInToolArgumentsAreSalvaged() {
+        // the arguments field value contains a RAW newline inside a string literal
+        // once the SSE envelope is decoded; salvage must not fail the message.
+        AssistantMessageEventStream out = feed(MODEL, """
+                data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"run","arguments":""}}]},"finish_reason":null}]}
+
+                data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\\"cmd\\\": \\\"ls\\n--all\\\"}"}}]},"finish_reason":null}]}
+
+                data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+                data: [DONE]
+                """);
+
+        AssistantMessage message = out.result().join();
+        assertEquals(StopReason.TOOL_USE, message.stopReason());
+        assertEquals(List.of(new Content.ToolCall("call_1", "run", Map.of("cmd", "ls\n--all"))), message.content());
+    }
+
+    @Test
     void plainStopFinishYieldsStopReasonStop() {
         AssistantMessageEventStream out = feed(MODEL, """
                 data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}

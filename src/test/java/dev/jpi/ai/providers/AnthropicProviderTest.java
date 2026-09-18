@@ -216,6 +216,64 @@ class AnthropicProviderTest {
     }
 
     @Test
+    void sseRawControlCharactersInToolArgumentsAreSalvaged() {
+        // partial_json carries an escaped newline; once the SSE envelope is decoded
+        // the accumulated arguments contain a RAW newline inside a string literal.
+        AssistantMessageEventStream out = feed(MODEL, """
+                event: message_start
+                data: {"type":"message_start","message":{"id":"msg_1"}}
+
+                event: content_block_start
+                data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"run"}}
+
+                event: content_block_delta
+                data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"cmd\\": \\"ls\\n--all\\"}"}}
+
+                event: content_block_stop
+                data: {"type":"content_block_stop","index":0}
+
+                event: message_delta
+                data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+
+                event: message_stop
+                data: {"type":"message_stop"}
+                """);
+
+        AssistantMessage message = out.result().join();
+        assertEquals(StopReason.TOOL_USE, message.stopReason(), "salvage must not fail the whole message");
+        assertEquals(List.of(new Content.ToolCall("toolu_1", "run", Map.of("cmd", "ls\n--all"))), message.content());
+    }
+
+    @Test
+    void sseUnparseableToolArgumentsBecomeEmptyWithoutFailingTheMessage() {
+        AssistantMessageEventStream out = feed(MODEL, """
+                event: message_start
+                data: {"type":"message_start","message":{"id":"msg_1"}}
+
+                event: content_block_start
+                data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"run"}}
+
+                event: content_block_delta
+                data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"<<<garbage>>>"}}
+
+                event: content_block_stop
+                data: {"type":"content_block_stop","index":0}
+
+                event: message_delta
+                data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+
+                event: message_stop
+                data: {"type":"message_stop"}
+                """);
+
+        AssistantMessage message = out.result().join();
+        // the tool call fails (empty args → schema validation error tool result),
+        // not the message — the loop continues and the model can re-issue.
+        assertEquals(StopReason.TOOL_USE, message.stopReason());
+        assertEquals(List.of(new Content.ToolCall("toolu_1", "run", Map.of())), message.content());
+    }
+
+    @Test
     void sseErrorEventBecomesTerminalErrorData() {
         AssistantMessageEventStream out = feed(MODEL, """
                 event: error
