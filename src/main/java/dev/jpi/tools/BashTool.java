@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 import dev.jpi.agent.AgentTool;
 import dev.jpi.agent.AgentToolResult;
-import dev.jpi.agent.CancellationToken;
+import dev.jpi.util.CancellationToken;
 import dev.jpi.ai.Content;
 
 /**

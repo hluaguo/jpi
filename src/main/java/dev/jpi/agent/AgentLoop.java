@@ -15,7 +15,9 @@ import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.StreamFn;
 import dev.jpi.ai.StreamOptions;
+import dev.jpi.ai.ThinkingLevel;
 import dev.jpi.ai.ToolResultMessage;
+import dev.jpi.util.CancellationToken;
 
 /**
  * The pure agent loop: {@code (model, context, prompts) → events + transcript}.
@@ -105,7 +107,7 @@ public class AgentLoop {
             Context llmContext = new Context(currentSystemPrompt, messages, currentTools.stream()
                     .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))
                     .toList());
-            AssistantMessage assistant = streamAssistantResponse(currentModel, llmContext, messages, newMessages, emit);
+            AssistantMessage assistant = streamAssistantResponse(currentModel, llmContext, messages, newMessages, signal, emit);
             stopReason = assistant.stopReason();
 
             List<ToolResultMessage> turnToolResults = List.of();
@@ -314,8 +316,9 @@ public class AgentLoop {
 
     private AssistantMessage streamAssistantResponse(Model model, Context llmContext,
                                                      List<Message> messages, List<Message> newMessages,
-                                                     Consumer<AgentEvent> emit) {
-        AssistantMessageEventStream stream = streamFn.stream(model, llmContext, StreamOptions.none());
+                                                     CancellationToken signal, Consumer<AgentEvent> emit) {
+        AssistantMessageEventStream stream = streamFn.stream(model, llmContext,
+                new StreamOptions(null, ThinkingLevel.OFF, signal));
         AssistantMessage assistant = AssistantMessage.pending(model);
         for (AssistantMessageEvent event : stream) {
             if (event instanceof AssistantMessageEvent.Start) {

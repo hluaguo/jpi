@@ -15,6 +15,7 @@ import dev.jpi.ai.StreamFn;
 import dev.jpi.ai.StreamOptions;
 import dev.jpi.ai.ThinkingLevel;
 import dev.jpi.ai.UserMessage;
+import dev.jpi.util.CancellationToken;
 
 /**
  * The stateful agent wrapper: owns the conversation state (system prompt, model,
@@ -122,7 +123,7 @@ public final class Agent {
                 .build();
         StreamFn streamFn = builder.streamFn;
         StreamFn withThinking = (model, context, options) ->
-                streamFn.stream(model, context, new StreamOptions(options.apiKey(), thinkingLevel));
+                streamFn.stream(model, context, new StreamOptions(options.apiKey(), thinkingLevel, options.cancel()));
         this.loop = new AgentLoop(withThinking, effective);
     }
 

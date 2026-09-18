@@ -24,6 +24,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -52,6 +53,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -81,6 +83,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -109,6 +112,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -137,6 +141,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -166,6 +171,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -194,6 +200,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -224,6 +231,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -254,6 +262,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -283,6 +292,7 @@
       },
       "stopReason": "PENDING",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -325,6 +335,7 @@
       },
       "stopReason": "TOOL_USE",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -348,6 +359,7 @@
       },
       "stopReason": "ERROR",
       "errorMessage": "HTTP 500",
+      "diagnostics": "SERVER",
       "timestamp": 1700000000000
     }
   }

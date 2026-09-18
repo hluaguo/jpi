@@ -12,15 +12,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import org.junit.jupiter.api.Test;
 
+import dev.jpi.Fixtures;
 import dev.jpi.agent.AgentEvent;
 import dev.jpi.ai.AssistantMessage;
 import dev.jpi.ai.AssistantMessageEvent;
 import dev.jpi.ai.Content;
+import dev.jpi.ai.ErrorKind;
 import dev.jpi.ai.Message;
 import dev.jpi.ai.StopReason;
-import dev.jpi.ai.ToolResultMessage;
 import dev.jpi.ai.Usage;
-import dev.jpi.ai.UserMessage;
 
 /**
  * The wire contract for messages and agent events: round-trip fidelity plus golden
@@ -29,49 +29,23 @@ import dev.jpi.ai.UserMessage;
  */
 class JsonTest {
 
-    private static final long TS = 1700000000000L;
-
-    // --- fixtures: one per wire shape, fixed timestamps for determinism -------
-
-    static UserMessage userMessage() {
-        return new UserMessage(
-                List.of(new Content.Text("hello"), new Content.Image("aGVsbG8=", "image/png")),
-                TS);
-    }
-
-    static AssistantMessage assistantMessage() {
-        return new AssistantMessage(
-                "anthropic-messages", "anthropic", "claude-sonnet-4",
-                List.of(
-                        new Content.Thinking("reasoning", "sig==", false),
-                        new Content.Text("hi"),
-                        new Content.ToolCall("call_1", "read", Map.of("path", "a.txt"))),
-                new Usage(100, 20, 80, 10, 0.3, 0.06, 0.24, 0.03),
-                StopReason.TOOL_USE, null, TS);
-    }
-
-    static ToolResultMessage toolResultMessage() {
-        return new ToolResultMessage(
-                "call_1", "read",
-                List.of(new Content.Text("file body")),
-                Map.of("bytes", 9), false, TS);
-    }
-
-    static List<Message> allMessages() {
-        return List.of(userMessage(), assistantMessage(), toolResultMessage());
-    }
+    // --- fixtures: message shapes come from Fixtures; this file contributes the
+    // event vocabulary (every AssistantMessageEvent / AgentEvent subtype) ---------
 
     static AssistantMessage partial() {
         return new AssistantMessage("anthropic-messages", "anthropic", "claude-sonnet-4",
-                List.of(new Content.Text("")), Usage.ZERO, StopReason.PENDING, null, TS);
+                List.of(new Content.Text("")), Usage.ZERO, StopReason.PENDING, null, null, Fixtures.TS);
     }
 
     static List<AssistantMessageEvent> allAssistantEvents() {
         AssistantMessage partial = partial();
-        AssistantMessage finalMessage = assistantMessage();
-        AssistantMessage errorMessage = new AssistantMessage(
-                "anthropic-messages", "anthropic", "claude-sonnet-4",
-                List.of(), Usage.ZERO, StopReason.ERROR, "HTTP 500", TS);
+        AssistantMessage finalMessage = Fixtures.assistantMessage();
+        AssistantMessage errorMessage = finalMessage
+                .withContent(List.of())
+                .withUsage(Usage.ZERO)
+                .withStopReason(StopReason.ERROR)
+                .withErrorMessage("HTTP 500")
+                .withDiagnostics(ErrorKind.SERVER);
         return List.of(
                 new AssistantMessageEvent.Start(partial),
                 new AssistantMessageEvent.TextStart(partial),
@@ -91,21 +65,21 @@ class JsonTest {
         return List.of(
                 new AgentEvent.Start(),
                 new AgentEvent.TurnStart(0),
-                new AgentEvent.MessageStart(userMessage()),
+                new AgentEvent.MessageStart(Fixtures.userMessage()),
                 new AgentEvent.MessageUpdate(new AssistantMessageEvent.TextDelta("he", partial())),
-                new AgentEvent.MessageEnd(assistantMessage()),
+                new AgentEvent.MessageEnd(Fixtures.assistantMessage()),
                 new AgentEvent.ToolExecutionStart("call_1", "read", Map.of("path", "a.txt")),
                 new AgentEvent.ToolExecutionUpdate("call_1", Map.of("lines", 3)),
-                new AgentEvent.ToolExecutionEnd("call_1", "read", toolResultMessage()),
-                new AgentEvent.TurnEnd(assistantMessage(), List.of(toolResultMessage())),
-                new AgentEvent.End(List.of(userMessage(), assistantMessage(), toolResultMessage())));
+                new AgentEvent.ToolExecutionEnd("call_1", "read", Fixtures.toolResultMessage()),
+                new AgentEvent.TurnEnd(Fixtures.assistantMessage(), List.of(Fixtures.toolResultMessage())),
+                new AgentEvent.End(Fixtures.allMessages()));
     }
 
     // --- round trip: object -> JSON -> object equals ---------------------------
 
     @Test
     void messagesRoundTripThroughJson() {
-        for (Message message : allMessages()) {
+        for (Message message : Fixtures.allMessages()) {
             assertEquals(message, Json.read(Json.write(message), Message.class), message.getClass().getSimpleName());
         }
     }
@@ -130,7 +104,7 @@ class JsonTest {
 
     @Test
     void messagesMatchGoldenWireFormat() throws Exception {
-        assertMatchesGolden("messages.json", allMessages().stream()
+        assertMatchesGolden("messages.json", Fixtures.allMessages().stream()
                 .map(m -> Json.readTree(Json.write(m)))
                 .toList());
     }
@@ -151,7 +125,7 @@ class JsonTest {
 
     @Test
     void goldenMessagesDeserializeToCurrentTypes() throws Exception {
-        assertEquals(allMessages(), Json.readList(goldenString("messages.json"), Message.class));
+        assertEquals(Fixtures.allMessages(), Json.readList(goldenString("messages.json"), Message.class));
     }
 
     @Test
@@ -173,7 +147,7 @@ class JsonTest {
             ObjectNode padded = (ObjectNode) golden.get(i).deepCopy();
             padded.putObject("futureField").put("hint", "added by a newer jpi");
             Message parsed = Json.MAPPER.treeToValue(padded, Message.class);
-            assertEquals(allMessages().get(i), parsed, "element " + i);
+            assertEquals(Fixtures.allMessages().get(i), parsed, "element " + i);
         }
     }
 

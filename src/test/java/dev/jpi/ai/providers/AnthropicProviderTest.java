@@ -7,6 +7,8 @@ import dev.jpi.ai.AssistantMessageEvent;
 import dev.jpi.ai.AssistantMessageEventStream;
 import dev.jpi.ai.Content;
 import dev.jpi.ai.Context;
+import dev.jpi.ai.ErrorClassifier;
+import dev.jpi.ai.ErrorKind;
 import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.StreamOptions;
@@ -45,7 +47,7 @@ class AnthropicProviderTest {
                                 List.of(
                                         new Content.Text("checking"),
                                         new Content.ToolCall("toolu_1", "get_weather", Map.of("city", "SF"))),
-                                Usage.ZERO, StopReason.TOOL_USE, null, 2),
+                                Usage.ZERO, StopReason.TOOL_USE, null, null, 2),
                         new ToolResultMessage("toolu_1", "get_weather",
                                 List.of(new Content.Text("sunny")), Map.of(), false, 3)),
                 List.of(new Tool("get_weather", "get it", Map.of("type", "object"))));
@@ -175,6 +177,30 @@ class AnthropicProviderTest {
         out.forEach(e -> { });
         AssistantMessage message = out.result().join();
         assertTrue(message.stopReason() == StopReason.ERROR, "truncated stream must end in an error, not hang");
+    }
+
+    @Test
+    void httpFailureCarriesMessageAndClassification() {
+        AssistantMessage rateLimited = AnthropicProvider.failure(MODEL, 429, "rate limit exceeded");
+        assertEquals(StopReason.ERROR, rateLimited.stopReason());
+        assertEquals(ErrorKind.RATE_LIMIT, rateLimited.diagnostics());
+        assertEquals("HTTP 429: rate limit exceeded", rateLimited.errorMessage());
+
+        AssistantMessage overflow = AnthropicProvider.failure(MODEL, 400,
+                "invalid_request_error: prompt is too long: 300000 tokens > 200000 maximum");
+        assertEquals(ErrorKind.CONTEXT_OVERFLOW, overflow.diagnostics());
+
+        AssistantMessage invalid = AnthropicProvider.failure(MODEL, 400, "invalid: messages: empty");
+        assertEquals(ErrorKind.UNKNOWN, invalid.diagnostics());
+    }
+
+    @Test
+    void transportFailureCarriesNetworkClassification() {
+        AssistantMessage failed = AnthropicProvider.failure(MODEL, "request failed: connection reset",
+                ErrorClassifier.classify(new java.io.IOException("connection reset")));
+        assertEquals(StopReason.ERROR, failed.stopReason());
+        assertEquals(ErrorKind.NETWORK, failed.diagnostics());
+        assertEquals("request failed: connection reset", failed.errorMessage());
     }
 
     /** Feeds canned SSE bytes (event name/data pairs) into an {@link AnthropicStreamParser}. */

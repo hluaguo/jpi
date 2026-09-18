@@ -7,6 +7,8 @@ import dev.jpi.ai.AssistantMessageEvent;
 import dev.jpi.ai.AssistantMessageEventStream;
 import dev.jpi.ai.Content;
 import dev.jpi.ai.Context;
+import dev.jpi.ai.ErrorClassifier;
+import dev.jpi.ai.ErrorKind;
 import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.StreamOptions;
@@ -47,7 +49,7 @@ class OpenAIProviderTest {
                                 List.of(
                                         new Content.Text("checking"),
                                         new Content.ToolCall("call_1", "get_weather", Map.of("city", "SF"))),
-                                Usage.ZERO, StopReason.TOOL_USE, null, 3),
+                                Usage.ZERO, StopReason.TOOL_USE, null, null, 3),
                         new ToolResultMessage("call_1", "get_weather",
                                 List.of(new Content.Text("sunny")), Map.of(), false, 4)),
                 List.of(new Tool("get_weather", "get it", Map.of("type", "object"))));
@@ -155,6 +157,30 @@ class OpenAIProviderTest {
         out.forEach(e -> { });
         assertTrue(out.result().join().stopReason() == StopReason.ERROR,
                 "stream cut before [DONE] must end in an error, not hang");
+    }
+
+    @Test
+    void httpFailureCarriesMessageAndClassification() {
+        AssistantMessage rateLimited = OpenAICompletionsProvider.failure(MODEL, 429, "rate limit exceeded");
+        assertEquals(StopReason.ERROR, rateLimited.stopReason());
+        assertEquals(ErrorKind.RATE_LIMIT, rateLimited.diagnostics());
+        assertEquals("HTTP 429: rate limit exceeded", rateLimited.errorMessage());
+
+        AssistantMessage overflow = OpenAICompletionsProvider.failure(MODEL, 400,
+            "This model's maximum context length is 8192 tokens");
+        assertEquals(ErrorKind.CONTEXT_OVERFLOW, overflow.diagnostics());
+
+        AssistantMessage invalid = OpenAICompletionsProvider.failure(MODEL, 400, "invalid body");
+        assertEquals(ErrorKind.UNKNOWN, invalid.diagnostics());
+    }
+
+    @Test
+    void transportFailureCarriesNetworkClassification() {
+        AssistantMessage failed = OpenAICompletionsProvider.failure(MODEL, "request failed: timed out",
+            ErrorClassifier.classify(new java.net.http.HttpTimeoutException("timed out")));
+        assertEquals(StopReason.ERROR, failed.stopReason());
+        assertEquals(ErrorKind.NETWORK, failed.diagnostics());
+        assertEquals("request failed: timed out", failed.errorMessage());
     }
 
     static AssistantMessageEventStream feed(Model model, String sse) {

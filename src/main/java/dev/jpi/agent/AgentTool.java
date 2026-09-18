@@ -1,6 +1,8 @@
 package dev.jpi.agent;
 
 import java.util.List;
+import dev.jpi.util.CancellationToken;
+
 import java.util.Map;
 import java.util.function.Consumer;
 

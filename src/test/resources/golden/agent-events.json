@@ -52,6 +52,7 @@
         },
         "stopReason": "PENDING",
         "errorMessage": null,
+        "diagnostics": null,
         "timestamp": 1700000000000
       }
     }
@@ -95,6 +96,7 @@
       },
       "stopReason": "TOOL_USE",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     }
   },
@@ -173,6 +175,7 @@
       },
       "stopReason": "TOOL_USE",
       "errorMessage": null,
+      "diagnostics": null,
       "timestamp": 1700000000000
     },
     "toolResults": [
@@ -249,6 +252,7 @@
         },
         "stopReason": "TOOL_USE",
         "errorMessage": null,
+        "diagnostics": null,
         "timestamp": 1700000000000
       },
       {

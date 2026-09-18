@@ -11,7 +11,8 @@ import java.util.List;
  * <em>Why failures are well-formed messages:</em> a failed or aborted call still ends
  * in the transcript with {@code stopReason == ERROR}/{@code ABORTED} and an
  * {@code errorMessage}, which is why the loop never has to catch provider exceptions
- * and every consumer handles exactly one message shape.
+ * and every consumer handles exactly one message shape. Failures additionally carry
+ * a classified {@link ErrorKind} in {@code diagnostics} for retry/UI decisions.
  */
 public record AssistantMessage(
         String api,
@@ -21,6 +22,7 @@ public record AssistantMessage(
         Usage usage,
         StopReason stopReason,
         String errorMessage,
+        ErrorKind diagnostics,
         long timestamp) implements Message {
 
     public AssistantMessage {
@@ -31,22 +33,26 @@ public record AssistantMessage(
 
     public static AssistantMessage pending(Model model) {
         return new AssistantMessage(model.api(), model.provider(), model.id(),
-                List.of(), Usage.ZERO, StopReason.PENDING, null, System.currentTimeMillis());
+                List.of(), Usage.ZERO, StopReason.PENDING, null, null, System.currentTimeMillis());
     }
 
     public AssistantMessage withContent(List<Content> content) {
-        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, timestamp);
+        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, diagnostics, timestamp);
     }
 
     public AssistantMessage withStopReason(StopReason stopReason) {
-        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, timestamp);
+        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, diagnostics, timestamp);
     }
 
     public AssistantMessage withUsage(Usage usage) {
-        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, timestamp);
+        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, diagnostics, timestamp);
     }
 
     public AssistantMessage withErrorMessage(String errorMessage) {
-        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, timestamp);
+        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, diagnostics, timestamp);
+    }
+
+    public AssistantMessage withDiagnostics(ErrorKind diagnostics) {
+        return new AssistantMessage(api, provider, model, content, usage, stopReason, errorMessage, diagnostics, timestamp);
     }
 }

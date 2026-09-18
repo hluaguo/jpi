@@ -15,6 +15,8 @@ import dev.jpi.ai.AssistantMessage;
 import dev.jpi.ai.AssistantMessageEventStream;
 import dev.jpi.ai.Content;
 import dev.jpi.ai.Context;
+import dev.jpi.ai.ErrorClassifier;
+import dev.jpi.ai.ErrorKind;
 import dev.jpi.ai.Message;
 import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
@@ -60,7 +62,7 @@ public final class OpenAICompletionsProvider implements StreamFn {
                     .POST(HttpRequest.BodyPublishers.ofString(Json.write(buildRequest(model, context))))
                     .build();
         } catch (Exception e) {
-            fail(out, model, "failed to build request: " + e.getMessage());
+            fail(out, failure(model, "failed to build request: " + e.getMessage(), ErrorKind.UNKNOWN));
             return out;
         }
 
@@ -68,7 +70,7 @@ public final class OpenAICompletionsProvider implements StreamFn {
                 .thenAccept(response -> {
                     if (response.statusCode() != 200) {
                         String details = response.body().collect(Collectors.joining());
-                        fail(out, model, "HTTP " + response.statusCode() + ": " + truncate(details));
+                        fail(out, failure(model, response.statusCode(), details));
                         return;
                     }
                     OpenAIStreamParser parser = new OpenAIStreamParser(model, out);
@@ -76,26 +78,40 @@ public final class OpenAICompletionsProvider implements StreamFn {
                     try (var lines = response.body()) {
                         lines.forEach(sse::processLine);
                     } catch (Exception e) {
-                        fail(out, model, "failed reading response stream: " + e.getMessage());
+                        fail(out, failure(model, "failed reading response stream: " + e.getMessage(),
+                                ErrorClassifier.classify(e)));
                         return;
                     }
                     sse.end();
                     parser.complete();
                 })
                 .exceptionally(ex -> {
-                    fail(out, model, "request failed: " + (ex.getCause() != null ? ex.getCause() : ex).getMessage());
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    fail(out, failure(model, "request failed: " + cause.getMessage(),
+                            ErrorClassifier.classify(cause)));
                     return null;
                 });
         return out;
     }
 
-    private static void fail(AssistantMessageEventStream out, Model model, String message) {
+    private static void fail(AssistantMessageEventStream out, AssistantMessage message) {
         if (!out.result().isDone()) {
-            out.push(new dev.jpi.ai.AssistantMessageEvent.Error(
-                    AssistantMessage.pending(model)
-                            .withStopReason(StopReason.ERROR)
-                            .withErrorMessage(message)));
+            out.push(new dev.jpi.ai.AssistantMessageEvent.Error(message));
         }
+    }
+
+    /** The error message for an HTTP-level rejection: message and classification from status + body. */
+    static AssistantMessage failure(Model model, int statusCode, String body) {
+        return failure(model, "HTTP " + statusCode + ": " + truncate(body),
+                ErrorClassifier.classify(statusCode, body));
+    }
+
+    /** The error message for a non-HTTP failure (request build, transport, stream IO). */
+    static AssistantMessage failure(Model model, String message, ErrorKind kind) {
+        return AssistantMessage.pending(model)
+                .withStopReason(StopReason.ERROR)
+                .withErrorMessage(message)
+                .withDiagnostics(kind);
     }
 
     private static String truncate(String text) {

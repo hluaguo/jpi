@@ -8,7 +8,7 @@ import java.util.Map;
 
 import dev.jpi.agent.AgentTool;
 import dev.jpi.agent.AgentToolResult;
-import dev.jpi.agent.CancellationToken;
+import dev.jpi.util.CancellationToken;
 import dev.jpi.ai.Content;
 
 /** Reads a UTF-8 text file relative to the working directory. */
