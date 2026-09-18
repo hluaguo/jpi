@@ -140,11 +140,11 @@ public final class AnthropicProvider implements StreamFn {
         request.put("stream", true);
         if (context.systemPrompt() != null) {
             if (cacheControl == null) {
-                request.put("system", context.systemPrompt());
+                request.put("system", sanitizeSurrogates(context.systemPrompt()));
             } else {
                 Map<String, Object> block = new LinkedHashMap<>();
                 block.put("type", "text");
-                block.put("text", context.systemPrompt());
+                block.put("text", sanitizeSurrogates(context.systemPrompt()));
                 block.put("cache_control", cacheControl);
                 request.put("system", List.of(block));
             }
@@ -184,6 +184,37 @@ public final class AnthropicProvider implements StreamFn {
         }
     }
 
+    /**
+     * Drops unpaired UTF-16 surrogates: tool output decoded from non-UTF-8 bytes can
+     * carry them, and Anthropic rejects the request. Properly paired characters
+     * (emoji and all non-BMP text) pass through untouched.
+     */
+    static String sanitizeSurrogates(String text) {
+        StringBuilder out = null;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            boolean high = c >= 0xD800 && c <= 0xDBFF;
+            boolean low = c >= 0xDC00 && c <= 0xDFFF;
+            boolean paired = high && i + 1 < text.length()
+                    && text.charAt(i + 1) >= 0xDC00 && text.charAt(i + 1) <= 0xDFFF;
+            if ((high || low) && !paired) {
+                if (out == null) {
+                    out = new StringBuilder(text.length()).append(text, 0, i);
+                }
+                continue;
+            }
+            if (out != null) {
+                out.append(c);
+                if (paired) {
+                    out.append(text.charAt(++i));
+                }
+            } else if (paired) {
+                i++;
+            }
+        }
+        return out == null ? text : out.toString();
+    }
+
     private static Map<String, Object> toWireMessage(Message message) {
         if (message instanceof UserMessage user) {
             Map<String, Object> wire = new LinkedHashMap<>();
@@ -197,11 +228,11 @@ public final class AnthropicProvider implements StreamFn {
             List<Map<String, Object>> content = new ArrayList<>();
             for (Content block : assistant.content()) {
                 if (block instanceof Content.Text text) {
-                    content.add(mapOf("type", "text", "text", text.text()));
+                    content.add(mapOf("type", "text", "text", sanitizeSurrogates(text.text())));
                 } else if (block instanceof Content.Thinking thinking) {
                     Map<String, Object> wireBlock = new LinkedHashMap<>();
                     wireBlock.put("type", "thinking");
-                    wireBlock.put("thinking", thinking.thinking());
+                    wireBlock.put("thinking", sanitizeSurrogates(thinking.thinking()));
                     if (thinking.signature() != null) {
                         wireBlock.put("signature", thinking.signature());
                     }
@@ -234,7 +265,7 @@ public final class AnthropicProvider implements StreamFn {
         List<Map<String, Object>> wire = new ArrayList<>();
         for (Content block : blocks) {
             if (block instanceof Content.Text text) {
-                wire.add(mapOf("type", "text", "text", text.text()));
+                wire.add(mapOf("type", "text", "text", sanitizeSurrogates(text.text())));
             } else if (block instanceof Content.Image image) {
                 wire.add(mapOf("type", "image", "source",
                         mapOf("type", "base64", "media_type", image.mimeType(), "data", image.data())));

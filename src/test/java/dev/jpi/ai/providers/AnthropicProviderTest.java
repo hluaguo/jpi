@@ -147,6 +147,26 @@ class AnthropicProviderTest {
     }
 
     @Test
+    void requestStripsUnpairedSurrogatesFromText() throws Exception {
+        // tool output decoded from non-UTF-8 bytes can carry unpaired surrogates;
+        // Anthropic 400s on them. Properly paired characters (emoji) must survive.
+        Context context = new Context(
+                "a\uD83Db",
+                List.of(
+                        new UserMessage(List.of(new Content.Text("x\uD800y")), 1),
+                        new ToolResultMessage("toolu_1", "bash",
+                                List.of(new Content.Text("p\uDCA9q \uD83D\uDE48 paired")), Map.of(), false, 2)),
+                List.of());
+
+        JsonNode tree = Json.MAPPER.readTree(Json.write(AnthropicProvider.buildRequest(MODEL, context)));
+
+        assertEquals("ab", tree.path("system").get(0).path("text").asText());
+        assertEquals("xy", tree.path("messages").get(0).path("content").get(0).path("text").asText());
+        assertEquals("pq \uD83D\uDE48 paired",
+                tree.path("messages").get(1).path("content").get(0).path("content").get(0).path("text").asText());
+    }
+
+    @Test
     void sseEventsMapToProtocolAndAssembleToolArguments() {
         String sse = """
                 event: message_start
