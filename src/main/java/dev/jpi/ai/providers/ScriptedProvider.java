@@ -9,6 +9,7 @@ import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.StreamFn;
 import dev.jpi.ai.StreamOptions;
+import dev.jpi.ai.Usage;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,21 +68,28 @@ public final class ScriptedProvider implements StreamFn {
         private Builder() {
         }
 
-        /** One call producing a single text block ending with {@code done(STOP)}. */
-        public Builder text(String text) {
+        /** One call producing a single text block ending with {@code done(STOP)}.
+         *
+         * @param usage provider-reported token counts; the loop/UI treat these as authoritative
+         */
+        public Builder text(String text, Usage usage) {
             return add((model, context) -> {
                 AssistantMessageEventStream stream = new AssistantMessageEventStream();
                 AssistantMessage partial = AssistantMessage.pending(model);
                 stream.push(new AssistantMessageEvent.Start(partial));
                 partial = partial.withContent(List.of(new Content.Text("")));
                 stream.push(new AssistantMessageEvent.TextStart(partial));
-                partial = partial.withContent(List.of(new Content.Text(text)));
+                partial = partial.withContent(List.of(new Content.Text(text))).withUsage(usage);
                 stream.push(new AssistantMessageEvent.TextDelta(text, partial));
                 stream.push(new AssistantMessageEvent.TextEnd(partial));
                 partial = partial.withStopReason(StopReason.STOP);
                 stream.push(new AssistantMessageEvent.Done(partial));
                 return stream;
             });
+        }
+
+        public Builder text(String text) {
+            return text(text, Usage.ZERO);
         }
 
         /** One call producing several tool calls (one response), ending with {@code done(TOOL_USE)}. */
