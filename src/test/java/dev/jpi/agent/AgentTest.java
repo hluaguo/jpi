@@ -5,6 +5,7 @@ import dev.jpi.ai.Content;
 import dev.jpi.ai.Model;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.ThinkingLevel;
+import dev.jpi.ai.ToolResultMessage;
 import dev.jpi.ai.UserMessage;
 import dev.jpi.ai.providers.ScriptedProvider;
 import org.junit.jupiter.api.Test;
@@ -403,16 +404,80 @@ class AgentTest {
     }
 
     @Test
-    void continueRunResumesWithoutNewUserMessage() {
-        ScriptedProvider provider = ScriptedProvider.builder()
-                .text("first")
-                .text("second")
-                .build();
+    void continueRunRejectsEmptyOrAssistantTailedTranscripts() {
+        ScriptedProvider provider = ScriptedProvider.builder().text("x").build();
         Agent agent = Agent.builder().streamFn(provider).model(MODEL).build();
+
+        IllegalStateException empty = assertThrows(IllegalStateException.class, agent::continueRun);
+        assertTrue(empty.getMessage().contains("no messages"));
+
         agent.prompt("hi");
+
+        // a completed run ends with an assistant message — retry from there is a
+        // provider rejection in waiting; the loop must refuse up front
+        IllegalStateException assistant = assertThrows(IllegalStateException.class, agent::continueRun);
+        assertTrue(assistant.getMessage().contains("assistant"));
+        assertEquals(1, provider.calls().size());
+    }
+
+    @Test
+    void continueRunResumesFromAnAbortedToolBatch() throws Exception {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "slow", Map.of())
+                .text("resumed")
+                .build();
+        CountDownLatch started = new CountDownLatch(1);
+        AgentTool slow = new AgentTool() {
+            @Override
+            public String name() {
+                return "slow";
+            }
+
+            @Override
+            public String description() {
+                return "slow";
+            }
+
+            @Override
+            public Map<String, Object> parameters() {
+                return Map.of("type", "object");
+            }
+
+            @Override
+            public AgentToolResult execute(String toolCallId, Map<String, Object> args,
+                                           CancellationToken signal, Consumer<Map<String, Object>> onUpdate) {
+                started.countDown();
+                // cooperative cancellation: poll the signal instead of a blind sleep
+                long deadline = System.currentTimeMillis() + 5_000;
+                while (!signal.isAborted() && System.currentTimeMillis() < deadline) {
+                    try {
+                        Thread.sleep(25);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                return AgentToolResult.text("ok");
+            }
+        };
+        Agent agent = Agent.builder().streamFn(provider).model(MODEL).tools(List.of(slow)).build();
+
+        Thread runner = new Thread(() -> agent.prompt("go"));
+        runner.start();
+        assertTrue(started.await(5, TimeUnit.SECONDS));
+        agent.abort();
+        runner.join(5_000);
+        assertFalse(runner.isAlive());
+
+        // transcript ends with a tool result: exactly pi's retry case
+        Object last = agent.messages().get(agent.messages().size() - 1);
+        assertTrue(last instanceof ToolResultMessage);
+
         agent.continueRun();
-        assertEquals(3, agent.messages().size()); // user, asst(first), asst(second)
+
         assertEquals(2, provider.calls().size());
+        AssistantMessage resumed = (AssistantMessage) agent.messages().get(agent.messages().size() - 1);
+        assertEquals("resumed", ((Content.Text) resumed.content().get(0)).text());
     }
 
     @Test

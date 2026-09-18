@@ -7,6 +7,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
+import dev.jpi.ai.AssistantMessage;
 import dev.jpi.ai.AssistantMessageEventStream;
 import dev.jpi.ai.Context;
 import dev.jpi.ai.Message;
@@ -241,8 +242,21 @@ public final class Agent {
         run(prompts);
     }
 
-    /** Resumes the loop without appending a new user message; blocks the caller. */
+    /**
+     * Resumes the loop without appending a new user message; blocks the caller.
+     *
+     * <p>Rejected when the transcript is empty or ends with an assistant message:
+     * providers reject a conversation that does not end in a user or tool result
+     * message, so continuing from there just buys a wire error. Continue is the
+     * retry path — e.g. from an aborted tool batch — not a general re-prompt.
+     */
     public void continueRun() {
+        if (messages.isEmpty()) {
+            throw new IllegalStateException("Cannot continue: no messages in context");
+        }
+        if (messages.get(messages.size() - 1) instanceof AssistantMessage) {
+            throw new IllegalStateException("Cannot continue from message role: assistant");
+        }
         run(List.of());
     }
 
