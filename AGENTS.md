@@ -4,64 +4,72 @@ Instructions for coding agents (and humans) working in this repository.
 
 ## What this project is
 
-**jpi** is a minimal Java 21 port of the core of the [pi coding agent](https://github.com/badlogic/pi-mono)
-(`pi-agent-core` + `pi-ai`, MIT, Mario Zechner / earendil-works): the agent loop, the
-streaming LLM boundary, and wire adapters — extracted from the full app into a small,
-dependency-light OSS library.
+**jpi** — a minimal Java 21 port of the pi coding agent core (`pi-agent-core` +
+`pi-ai`, MIT, Mario Zechner / earendil-works): the agent loop, the streaming LLM
+boundary, and wire adapters, as a small dependency-light OSS library.
 
-- The app layer of pi (TUI, sessions, compaction, extensions, model catalogs, OAuth)
-  is deliberately **out of scope**. Don't add it.
-- `REPORT.md` is the design reference (the studied pi architecture and what jpi takes/drops).
-  `PROMPT.md` is the build plan (tickets T0–T8, test seams). Read both before larger changes.
-- Single Maven module, package root `dev.jpi` (`ai`, `ai.providers`, `agent`, `tools`, `examples`).
-  Dependencies: **Jackson and JUnit 5 only** — HTTP via `java.net.http`, hand-rolled SSE parser.
-- All tests are **offline and deterministic** (`ScriptedProvider` fakes the LLM; adapters are
-  tested against canned request/response bytes). No network in the suite, ever.
-- Failures are **data, not exceptions** across module boundaries: provider failures become
-  assistant messages with `stopReason = ERROR/ABORTED`; tool throws become error tool
-  results. The loop is a pure, total function.
+- Out of scope (don't add): TUI, session trees, compaction engine, extensions,
+  model catalogs, OAuth.
+- Read before larger changes: `REPORT.md` (design reference), `PROMPT.md`
+  (tickets T0–T8 + agreed test seams), `PROMPT-ADDENDUM.md` (T9–T14, after `v0.1.0`).
+- Single Maven module, package root `dev.jpi`. Dependencies: **Jackson + JUnit 5
+  only**; HTTP via `java.net.http`; hand-rolled SSE parser.
+- All tests offline & deterministic (`ScriptedProvider`; adapters tested against
+  canned bytes). No network in the suite, ever.
+- Failures are **data, not exceptions**: provider failures → assistant messages
+  with `stopReason = ERROR/ABORTED`; tool throws → error tool results.
 - Message/event types are sealed interfaces + records; streaming funnels through
-  `EventStream` / `AssistantMessageEventStream`.
+  `EventStream`.
 
 ## Documentation standard
 
-Docstrings exist to record **why**, not what.
+Docstrings record **why**, not what.
 
-- A class/interface doc states *why the abstraction exists*: the problem it solves, the
-  design decision it encodes, the constraint it protects. Not a paraphrase of its methods.
-  Example: `StreamFn` documents *why* implementations must not throw; `AgentLoopConfig`
-  documents *why* hooks exist instead of features.
-- **No docstrings on obvious functions.** If the name and signature already say it
-  (`result()`, `calls()`, `processLine(line)`), leave it undocumented. A restating
-  docstring is noise and rots fast.
-- Keep a function docstring only when it carries something non-obvious: a contract you
-  couldn't guess (`prompt()` blocks the caller), a wire-protocol quirk (`tool_result`
-  rides on user messages in Anthropic; usage arrives after `finish_reason` in OpenAI),
-  an invariant (a `Done` event never carries `stopReason = ERROR`), or a rule
-  (`terminate` only fires when *every* result in the batch sets it).
-- When you touch code whose docstring restates mechanics, fix the docstring in the same
-  change — the doc standard applies to the whole file, not just your hunk.
+- Class docs state the problem the abstraction solves — never paraphrase methods.
+- No docstrings on obvious functions; a restating doc is noise and rots.
+- Keep docs carrying contracts you can't guess: blocking behavior, wire-protocol
+  quirks (usage arrives after `finish_reason` in OpenAI), invariants (`terminate`
+  fires only when every result in the batch sets it).
+- Touching a file whose doc restates mechanics? Fix it in the same change.
 
 ## Duplication standard
 
-**Do not deduplicate for deduplication's sake.**
+The adapters (`AnthropicProvider`, `OpenAICompletionsProvider`) deliberately keep
+their own request/SSE/delta logic — each reads as a standalone description of its
+wire protocol. Review must not flag this. Extract only on a third real caller
+(rule of three) or for behavior that must not drift (protocol invariants).
 
-- The wire adapters (`AnthropicProvider`, `OpenAICompletionsProvider`, and their stream
-  parsers) deliberately **keep their own logic**: request building, SSE handling, delta
-  assembly, and error plumbing are each self-contained. The duplication is intentional —
-  each adapter reads as a standalone description of its wire protocol, and the two
-  protocols evolve independently. Code review must not flag this as a defect.
-- Extract shared code only when a **third real caller** exists (rule of three), or when
-  the duplication is of *behavior* that must not drift (protocol invariants, e.g. the
-  terminal-event contract shared via `AssistantMessageEvent`).
-- Within a single class, small helpers are fine; reaching for inheritance, generics, or
-  abstraction layers to remove a few repeated lines is not.
+## Commit standard
+
+Conventional Commits, one commit per ticket or coherent slice:
+
+```
+<type>(<scope>): <imperative summary, ≤72 chars> [T<n>]
+
+[optional body: what + why, blank-line separated]
+pi: <pi file/feature ported>
+```
+
+- Types: `feat` `fix` `test` `docs` `refactor` `chore` `build`.
+- Scope: area — `loop`, `ai`, `stream`, `adapters`, `tools`, `json`, `session`, `stats`.
+- The `pi:` trailer cites the ported origin (e.g. `pi: provider-retry.js,
+  overflow.js`) — required when porting; it becomes the report's traceability table.
+- Never commit: secrets/API keys, `target/`, personal data in fixtures.
+- No force-push to `main`; linear history on working branches.
+
+Examples:
+
+```
+feat(loop): fail tool calls from truncated responses [T3]
+feat(adapters): retry with backoff and error classification [T10]
+
+pi: provider-retry.js, overflow.js
+test(json): golden files for event serialization [T9]
+```
 
 ## Working agreement
 
-- Test-first at the agreed seams only (`EventStream`, `AgentLoop`, `Agent`, adapter
-  mappings); one vertical slice per red→green cycle; no speculative hooks.
-- `mvn -q compile` often; single test classes often; full `mvn test` before committing.
-- One commit per ticket/feature; keep `git log` clean.
-- Java 21 (`maven.compiler.release=21`); records and sealed interfaces over mutable
-  POJOs for message/event types.
+- TDD at the agreed seams only; one vertical slice per red→green cycle; no
+  speculative hooks.
+- `mvn -q compile` often; single test classes often; full `mvn test` before commit.
+- Java 21 (`maven.compiler.release=21`); records/sealed over mutable POJOs.

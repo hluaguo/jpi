@@ -388,30 +388,33 @@ class AgentLoopTest {
                         new Content.ToolCall("call_2", "fast", Map.of())))
                 .text("all done")
                 .build();
-        CountDownLatch fastFinished = new CountDownLatch(1);
+        CountDownLatch fastEndEmitted = new CountDownLatch(1);
         AgentTool slow = tool("slow", args -> {
             try {
-                fastFinished.await(5, TimeUnit.SECONDS);
+                fastEndEmitted.await(5, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
             return AgentToolResult.text("slow done");
         });
-        AgentTool fast = tool("fast", args -> {
-            fastFinished.countDown();
-            return AgentToolResult.text("fast done");
-        });
+        AgentTool fast = tool("fast", args -> AgentToolResult.text("fast done"));
         AgentLoopConfig config = AgentLoopConfig.builder()
                 .toolExecution(AgentLoopConfig.ToolExecution.PARALLEL)
                 .build();
         AgentLoop loop = new AgentLoop(provider, config);
 
         List<AgentEvent> events = new ArrayList<>();
+        Consumer<AgentEvent> listener = event -> {
+            events.add(event);
+            if (event instanceof AgentEvent.ToolExecutionEnd end && end.toolCallId().equals("call_2")) {
+                fastEndEmitted.countDown();
+            }
+        };
         AgentLoop.LoopResult result = loop.run(
                 MODEL,
                 new AgentContext(null, List.of(), List.of(slow, fast)),
                 List.of(UserMessage.of("go")),
-                events::add);
+                listener);
 
         // ends in completion order: fast first
         List<String> endIds = events.stream()
