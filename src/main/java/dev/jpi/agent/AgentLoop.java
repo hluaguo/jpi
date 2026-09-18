@@ -176,7 +176,12 @@ public class AgentLoop {
 
     private List<ExecResult> executeToolCalls(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
                                               CancellationToken signal, Consumer<AgentEvent> emit) {
-        return config.toolExecution() == AgentLoopConfig.ToolExecution.PARALLEL
+        // one sequential-mode tool in the batch forces the whole batch sequential
+        boolean hasSequentialToolCall = toolCalls.stream().anyMatch(call -> tools.stream()
+                .filter(t -> t.name().equals(call.name())).findFirst()
+                .map(t -> t.executionMode() == AgentLoopConfig.ToolExecution.SEQUENTIAL)
+                .orElse(false));
+        return config.toolExecution() == AgentLoopConfig.ToolExecution.PARALLEL && !hasSequentialToolCall
                 ? executeToolCallsParallel(tools, toolCalls, signal, emit)
                 : executeToolCallsSequential(tools, toolCalls, signal, emit);
     }

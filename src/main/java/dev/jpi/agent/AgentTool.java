@@ -22,6 +22,16 @@ public interface AgentTool {
     /** Argument schema, JSON-Schema-shaped. */
     Map<String, Object> parameters();
 
+    /**
+     * Overrides the batch execution mode for calls of this tool: if any tool call in
+     * a batch targets a SEQUENTIAL tool, the whole batch runs sequentially — the
+     * tool's work must never overlap, and one straggler must not parallelize its
+     * siblings. {@code null} inherits the loop config.
+     */
+    default AgentLoopConfig.ToolExecution executionMode() {
+        return null;
+    }
+
     /** Short display label; defaults to {@link #name}. */
     default String label() {
         return name();

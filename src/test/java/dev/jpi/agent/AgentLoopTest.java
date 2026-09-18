@@ -480,6 +480,72 @@ class AgentLoopTest {
     }
 
     @Test
+    void sequentialExecutionModeToolForcesTheWholeBatchSequential() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCalls(List.of(
+                        new Content.ToolCall("call_1", "lock", Map.of()),
+                        new Content.ToolCall("call_2", "free", Map.of())))
+                .text("all done")
+                .build();
+        List<String> order = new ArrayList<>();
+        List<String> violations = new ArrayList<>();
+        AgentTool lock = new AgentTool() {
+            @Override
+            public String name() {
+                return "lock";
+            }
+
+            @Override
+            public String description() {
+                return "must never overlap";
+            }
+
+            @Override
+            public Map<String, Object> parameters() {
+                return Map.of("type", "object");
+            }
+
+            @Override
+            public AgentLoopConfig.ToolExecution executionMode() {
+                return AgentLoopConfig.ToolExecution.SEQUENTIAL;
+            }
+
+            @Override
+            public AgentToolResult execute(String toolCallId, Map<String, Object> args,
+                                           CancellationToken signal, Consumer<Map<String, Object>> onUpdate) {
+                try {
+                    // wide window: a parallel implementation would start "free" here
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                order.add("lock");
+                return AgentToolResult.text("lock done");
+            }
+        };
+        AgentTool free = tool("free", args -> {
+            if (!order.contains("lock")) {
+                violations.add("free ran before lock finished");
+            }
+            order.add("free");
+            return AgentToolResult.text("free done");
+        });
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .toolExecution(AgentLoopConfig.ToolExecution.PARALLEL)
+                .build();
+        AgentLoop loop = new AgentLoop(provider, config);
+
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(lock, free)),
+                List.of(UserMessage.of("go")));
+
+        assertEquals(List.of(), violations, "a sequential tool must not overlap its batch");
+        assertEquals(List.of("lock", "free"), order);
+        assertEquals(StopReason.STOP, result.stopReason());
+    }
+
+    @Test
     void parallelToolExecutionEndsInCompletionOrderButMessagesStayInSourceOrder() throws Exception {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .toolCalls(List.of(
