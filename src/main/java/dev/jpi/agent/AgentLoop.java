@@ -132,7 +132,8 @@ public class AgentLoop {
                                     "tool call arguments may be truncated (stop_reason: length)"), false))
                             .toList();
                 } else {
-                    results = executeToolCalls(currentTools, toolCalls, signal, emit);
+                    results = executeToolCalls(currentTools, toolCalls, assistant,
+                            new AgentContext(currentSystemPrompt, messages, currentTools), signal, emit);
                 }
                 turnToolResults = results.stream().map(ExecResult::message).toList();
                 hasMoreToolCalls = signal.isAborted()
@@ -175,6 +176,7 @@ public class AgentLoop {
     }
 
     private List<ExecResult> executeToolCalls(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
+                                              AssistantMessage assistant, AgentContext callContext,
                                               CancellationToken signal, Consumer<AgentEvent> emit) {
         // one sequential-mode tool in the batch forces the whole batch sequential
         boolean hasSequentialToolCall = toolCalls.stream().anyMatch(call -> tools.stream()
@@ -182,11 +184,12 @@ public class AgentLoop {
                 .map(t -> t.executionMode() == AgentLoopConfig.ToolExecution.SEQUENTIAL)
                 .orElse(false));
         return config.toolExecution() == AgentLoopConfig.ToolExecution.PARALLEL && !hasSequentialToolCall
-                ? executeToolCallsParallel(tools, toolCalls, signal, emit)
-                : executeToolCallsSequential(tools, toolCalls, signal, emit);
+                ? executeToolCallsParallel(tools, toolCalls, assistant, callContext, signal, emit)
+                : executeToolCallsSequential(tools, toolCalls, assistant, callContext, signal, emit);
     }
 
     private List<ExecResult> executeToolCallsSequential(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
+                                                        AssistantMessage assistant, AgentContext callContext,
                                                         CancellationToken signal, Consumer<AgentEvent> emit) {
         List<ExecResult> results = new ArrayList<>();
         for (Content.ToolCall toolCall : toolCalls) {
@@ -194,7 +197,7 @@ public class AgentLoop {
                 results.add(new ExecResult(errorResult(toolCall, "Operation aborted"), false));
                 continue;
             }
-            results.add(executeOneToolCall(tools, toolCall, signal, emit));
+            results.add(executeOneToolCall(tools, toolCall, assistant, callContext, signal, emit));
         }
         return results;
     }
@@ -212,6 +215,7 @@ public class AgentLoop {
      * keep source order (what the transcript wants).
      */
     private List<ExecResult> executeToolCallsParallel(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
+                                                      AssistantMessage assistant, AgentContext callContext,
                                                       CancellationToken signal, Consumer<AgentEvent> emit) {
         List<Prepared> prepared = new ArrayList<>();
         for (Content.ToolCall toolCall : toolCalls) {
@@ -232,9 +236,11 @@ public class AgentLoop {
                 prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, validationError), false)));
                 continue;
             }
-            AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(tool, toolCall);
+            AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(
+                    new AgentLoopConfig.BeforeToolCallContext(tool, toolCall, toolCall.arguments(), assistant, callContext));
             if (decision.block()) {
-                prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, decision.reason()), false)));
+                prepared.add(new Prepared(toolCall, null,
+                        new ExecResult(errorResult(toolCall, decision.reason()), decision.terminate())));
                 continue;
             }
             prepared.add(new Prepared(toolCall, tool, null));
@@ -259,7 +265,7 @@ public class AgentLoop {
                 futures.add(CompletableFuture.completedFuture(p.error()));
                 continue;
             }
-            futures.add(CompletableFuture.supplyAsync(() -> runPrepared(p, signal, safeEmit)));
+            futures.add(CompletableFuture.supplyAsync(() -> runPrepared(p, assistant, callContext, signal, safeEmit)));
         }
         List<ExecResult> results = new ArrayList<>();
         for (CompletableFuture<ExecResult> future : futures) {
@@ -268,7 +274,7 @@ public class AgentLoop {
         return results;
     }
 
-    private ExecResult runPrepared(Prepared prepared,
+    private ExecResult runPrepared(Prepared prepared, AssistantMessage assistant, AgentContext callContext,
                                    CancellationToken signal, Consumer<AgentEvent> emit) {
         Content.ToolCall toolCall = prepared.call();
         AgentToolResult result;
@@ -282,12 +288,14 @@ public class AgentLoop {
         ToolResultMessage toolResult = new ToolResultMessage(
                 toolCall.id(), toolCall.name(), result.content(), result.details(), false,
                 System.currentTimeMillis());
-        toolResult = config.afterToolCall().afterToolCall(prepared.tool(), toolCall, toolResult);
+        toolResult = config.afterToolCall().afterToolCall(new AgentLoopConfig.AfterToolCallContext(
+                prepared.tool(), toolCall, toolCall.arguments(), assistant, callContext, toolResult));
         emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), toolResult));
         return new ExecResult(toolResult, result.terminate());
     }
 
     private ExecResult executeOneToolCall(List<AgentTool> tools, Content.ToolCall toolCall,
+                                          AssistantMessage assistant, AgentContext callContext,
                                           CancellationToken signal, Consumer<AgentEvent> emit) {
         AgentTool tool = tools.stream()
                 .filter(t -> t.name().equals(toolCall.name()))
@@ -301,10 +309,10 @@ public class AgentLoop {
             return new ExecResult(errorResult(toolCall, validationError), false);
         }
 
-        AgentLoopConfig.BeforeToolCallResult decision =
-                config.beforeToolCall().beforeToolCall(tool, toolCall);
+        AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(
+                new AgentLoopConfig.BeforeToolCallContext(tool, toolCall, toolCall.arguments(), assistant, callContext));
         if (decision.block()) {
-            return new ExecResult(errorResult(toolCall, decision.reason()), false);
+            return new ExecResult(errorResult(toolCall, decision.reason()), decision.terminate());
         }
 
         emit.accept(new AgentEvent.ToolExecutionStart(toolCall.id(), toolCall.name(), toolCall.arguments()));
@@ -320,7 +328,8 @@ public class AgentLoop {
         ToolResultMessage toolResult = new ToolResultMessage(
                 toolCall.id(), toolCall.name(), result.content(), result.details(), false,
                 System.currentTimeMillis());
-        toolResult = config.afterToolCall().afterToolCall(tool, toolCall, toolResult);
+        toolResult = config.afterToolCall().afterToolCall(new AgentLoopConfig.AfterToolCallContext(
+                tool, toolCall, toolCall.arguments(), assistant, callContext, toolResult));
         emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), toolResult));
         return new ExecResult(toolResult, result.terminate());
     }

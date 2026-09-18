@@ -7,6 +7,7 @@ import dev.jpi.ai.Model;
 import dev.jpi.ai.ToolResultMessage;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Loop configuration: hook points instead of features. Permissions = {@code beforeToolCall};
@@ -14,26 +15,54 @@ import java.util.List;
  */
 public final class AgentLoopConfig {
 
-    /** Decides whether a tool call may execute; a block becomes an error tool result. */
-    public interface BeforeToolCallHook {
-        BeforeToolCallResult beforeToolCall(AgentTool tool, Content.ToolCall call);
+    /** Everything known when a tool call is about to execute; {@code args} are validated. */
+    public record BeforeToolCallContext(
+            AgentTool tool,
+            Content.ToolCall toolCall,
+            Map<String, Object> args,
+            AssistantMessage assistantMessage,
+            AgentContext context) {
     }
 
-    /** The hook's decision. */
-    public record BeforeToolCallResult(boolean block, String reason) {
+    /** The hook's decision; a block may also set {@code terminate}, which feeds the
+     * all-terminate batch rule (the run only ends when every result terminates). */
+    public record BeforeToolCallResult(boolean block, String reason, boolean terminate) {
+
+        public BeforeToolCallResult {
+            terminate = terminate && block;
+        }
 
         public static BeforeToolCallResult allow() {
-            return new BeforeToolCallResult(false, null);
+            return new BeforeToolCallResult(false, null, false);
         }
 
         public static BeforeToolCallResult block(String reason) {
-            return new BeforeToolCallResult(true, reason);
+            return new BeforeToolCallResult(true, reason, false);
         }
+
+        public static BeforeToolCallResult block(String reason, boolean terminate) {
+            return new BeforeToolCallResult(true, reason, terminate);
+        }
+    }
+
+    /** Decides whether a tool call may execute; a block becomes an error tool result. */
+    public interface BeforeToolCallHook {
+        BeforeToolCallResult beforeToolCall(BeforeToolCallContext context);
+    }
+
+    /** Everything known when a tool result is finalized; {@code result} is the raw outcome. */
+    public record AfterToolCallContext(
+            AgentTool tool,
+            Content.ToolCall toolCall,
+            Map<String, Object> args,
+            AssistantMessage assistantMessage,
+            AgentContext context,
+            ToolResultMessage result) {
     }
 
     /** Field-wise override of a finalized tool result, before it is emitted or appended. */
     public interface AfterToolCallHook {
-        ToolResultMessage afterToolCall(AgentTool tool, Content.ToolCall call, ToolResultMessage result);
+        ToolResultMessage afterToolCall(AfterToolCallContext context);
     }
 
     /** Queued messages injected between turns (typed while the agent was busy). */
@@ -137,8 +166,8 @@ public final class AgentLoopConfig {
     }
 
     public static final class Builder {
-        private BeforeToolCallHook beforeToolCall = (tool, call) -> BeforeToolCallResult.allow();
-        private AfterToolCallHook afterToolCall = (tool, call, result) -> result;
+        private BeforeToolCallHook beforeToolCall = ctx -> BeforeToolCallResult.allow();
+        private AfterToolCallHook afterToolCall = ctx -> ctx.result();
         private SteeringHook getSteeringMessages = () -> List.of();
         private FollowUpHook getFollowUpMessages = () -> List.of();
         private ShouldStopAfterTurnHook shouldStopAfterTurn = (assistant, toolResults, turnIndex) -> false;

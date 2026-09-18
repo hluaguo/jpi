@@ -165,7 +165,7 @@ class AgentLoopTest {
             }
         };
         AgentLoopConfig config = AgentLoopConfig.builder()
-                .beforeToolCall((t, call) -> {
+                .beforeToolCall(ctx -> {
                     calls.add("gated");
                     return AgentLoopConfig.BeforeToolCallResult.allow();
                 })
@@ -226,6 +226,99 @@ class AgentLoopTest {
     }
 
     @Test
+    void toolHooksReceiveAssistantMessageContextAndValidatedArgs() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "echo", Map.of("path", "a.txt"))
+                .text("done")
+                .build();
+        List<AgentLoopConfig.BeforeToolCallContext> before = new ArrayList<>();
+        List<AgentLoopConfig.AfterToolCallContext> after = new ArrayList<>();
+        AgentTool echo = tool("echo", args -> AgentToolResult.text("echoed"));
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .beforeToolCall(ctx -> {
+                    before.add(ctx);
+                    return AgentLoopConfig.BeforeToolCallResult.allow();
+                })
+                .afterToolCall(ctx -> {
+                    after.add(ctx);
+                    return ctx.result();
+                })
+                .build();
+        AgentLoop loop = new AgentLoop(provider, config);
+
+        loop.run(MODEL,
+                new AgentContext("sys", List.of(), List.of(echo)),
+                List.of(UserMessage.of("go")));
+
+        assertEquals(1, before.size());
+        AgentLoopConfig.BeforeToolCallContext b = before.get(0);
+        assertEquals("echo", b.tool().name());
+        assertEquals("call_1", b.toolCall().id());
+        assertEquals(Map.of("path", "a.txt"), b.args());
+        assertEquals("echo", ((Content.ToolCall) b.assistantMessage().content().get(0)).name());
+        assertEquals("sys", b.context().systemPrompt());
+        assertTrue(b.context().messages().contains(b.assistantMessage()),
+                "the hook's context must include the assistant message issuing the call");
+
+        assertEquals(1, after.size());
+        AgentLoopConfig.AfterToolCallContext a = after.get(0);
+        assertEquals("call_1", a.toolCall().id());
+        assertEquals(Map.of("path", "a.txt"), a.args());
+        assertEquals("echoed", ((Content.Text) a.result().content().get(0)).text());
+    }
+
+    @Test
+    void blockedToolCallsWithTerminateOnEveryResultEndTheRun() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCalls(List.of(
+                        new Content.ToolCall("call_1", "a", Map.of()),
+                        new Content.ToolCall("call_2", "a", Map.of())))
+                .text("never reached")
+                .build();
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .beforeToolCall(ctx -> AgentLoopConfig.BeforeToolCallResult.block("denied", true))
+                .build();
+        AgentLoop loop = new AgentLoop(provider,
+                config); // config = parallel-capable; blocking is mode-agnostic
+
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(tool("a", args -> AgentToolResult.text("ran")))),
+                List.of(UserMessage.of("go")));
+
+        // every result carries terminate, so the all-terminate rule ends the run
+        assertEquals(1, provider.calls().size());
+        List<Message> messages = result.messages();
+        assertTrue(((ToolResultMessage) messages.get(2)).isError());
+        assertTrue(((ToolResultMessage) messages.get(3)).isError());
+    }
+
+    @Test
+    void terminateOnOnlySomeBlockedCallsKeepsTheLoopAlive() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCalls(List.of(
+                        new Content.ToolCall("call_1", "a", Map.of()),
+                        new Content.ToolCall("call_2", "a", Map.of())))
+                .text("done")
+                .build();
+        AgentLoopConfig config = AgentLoopConfig.builder()
+                .beforeToolCall(ctx -> ctx.toolCall().id().equals("call_1")
+                        ? AgentLoopConfig.BeforeToolCallResult.block("denied", true)
+                        : AgentLoopConfig.BeforeToolCallResult.block("denied"))
+                .build();
+        AgentLoop loop = new AgentLoop(provider, config);
+
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(tool("a", args -> AgentToolResult.text("ran")))),
+                List.of(UserMessage.of("go")));
+
+        // not every result terminates: the model gets another turn
+        assertEquals(2, provider.calls().size());
+        assertEquals(StopReason.STOP, result.stopReason());
+    }
+
+    @Test
     void beforeToolCallBlockProducesErrorResultWithoutExecuting() {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .toolCall("call_1", "read", Map.of("path", "a.txt"))
@@ -237,7 +330,7 @@ class AgentLoopTest {
             return AgentToolResult.text("nope");
         });
         AgentLoopConfig config = AgentLoopConfig.builder()
-                .beforeToolCall((toolCallTool, call) -> AgentLoopConfig.BeforeToolCallResult.block("permission denied"))
+                .beforeToolCall(ctx -> AgentLoopConfig.BeforeToolCallResult.block("permission denied"))
                 .build();
         AgentLoop loop = new AgentLoop(provider, config);
 
@@ -263,10 +356,10 @@ class AgentLoopTest {
                 .text("done")
                 .build();
         AgentLoopConfig config = AgentLoopConfig.builder()
-                .afterToolCall((tool, call, resultMessage) -> new ToolResultMessage(
-                        resultMessage.toolCallId(), resultMessage.toolName(),
-                        List.of(new Content.Text("overridden")), resultMessage.details(),
-                        true, resultMessage.timestamp()))
+                .afterToolCall(ctx -> new ToolResultMessage(
+                        ctx.result().toolCallId(), ctx.result().toolName(),
+                        List.of(new Content.Text("overridden")), ctx.result().details(),
+                        true, ctx.result().timestamp()))
                 .build();
         AgentLoop loop = new AgentLoop(provider, config);
 
