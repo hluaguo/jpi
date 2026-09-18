@@ -1,0 +1,354 @@
+[
+  {
+    "type": "start",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_start",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_delta",
+    "delta": "he",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_end",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_start",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_delta",
+    "delta": "hm",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_end",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_start",
+    "id": "call_1",
+    "name": "read",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_delta",
+    "id": "call_1",
+    "delta": "{}",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_end",
+    "id": "call_1",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "PENDING",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "done",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "reasoning",
+          "signature": "sig==",
+          "redacted": false
+        },
+        {
+          "type": "text",
+          "text": "hi"
+        },
+        {
+          "type": "toolCall",
+          "id": "call_1",
+          "name": "read",
+          "arguments": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "usage": {
+        "input": 100,
+        "output": 20,
+        "cacheRead": 80,
+        "cacheWrite": 10,
+        "costInput": 0.3,
+        "costOutput": 0.06,
+        "costCacheRead": 0.24,
+        "costCacheWrite": 0.03
+      },
+      "stopReason": "TOOL_USE",
+      "errorMessage": null,
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "error",
+    "partial": {
+      "type": "assistant",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4",
+      "content": [],
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "costInput": 0.0,
+        "costOutput": 0.0,
+        "costCacheRead": 0.0,
+        "costCacheWrite": 0.0
+      },
+      "stopReason": "ERROR",
+      "errorMessage": "HTTP 500",
+      "timestamp": 1700000000000
+    }
+  }
+]

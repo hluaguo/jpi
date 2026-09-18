@@ -1,0 +1,72 @@
+[
+  {
+    "type": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "hello"
+      },
+      {
+        "type": "image",
+        "data": "aGVsbG8=",
+        "mimeType": "image/png"
+      }
+    ],
+    "timestamp": 1700000000000
+  },
+  {
+    "type": "assistant",
+    "api": "anthropic-messages",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "reasoning",
+        "signature": "sig==",
+        "redacted": false
+      },
+      {
+        "type": "text",
+        "text": "hi"
+      },
+      {
+        "type": "toolCall",
+        "id": "call_1",
+        "name": "read",
+        "arguments": {
+          "path": "a.txt"
+        }
+      }
+    ],
+    "usage": {
+      "input": 100,
+      "output": 20,
+      "cacheRead": 80,
+      "cacheWrite": 10,
+      "costInput": 0.3,
+      "costOutput": 0.06,
+      "costCacheRead": 0.24,
+      "costCacheWrite": 0.03
+    },
+    "stopReason": "TOOL_USE",
+    "errorMessage": null,
+    "timestamp": 1700000000000
+  },
+  {
+    "type": "toolResult",
+    "toolCallId": "call_1",
+    "toolName": "read",
+    "content": [
+      {
+        "type": "text",
+        "text": "file body"
+      }
+    ],
+    "details": {
+      "bytes": 9
+    },
+    "isError": false,
+    "timestamp": 1700000000000
+  }
+]
