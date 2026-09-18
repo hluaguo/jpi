@@ -26,7 +26,7 @@ import java.util.function.Predicate;
  * @param <T> event type
  * @param <R> result type
  */
-public final class EventStream<T, R> implements Iterable<T> {
+public class EventStream<T, R> implements Iterable<T> {
 
     private static final Object END = new Object();
 
