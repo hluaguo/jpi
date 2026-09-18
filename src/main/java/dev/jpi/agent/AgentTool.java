@@ -1,10 +1,10 @@
 package dev.jpi.agent;
 
 import java.util.List;
-import dev.jpi.util.CancellationToken;
-
 import java.util.Map;
 import java.util.function.Consumer;
+
+import dev.jpi.util.CancellationToken;
 
 /**
  * A tool the agent loop can execute. Declaration fields ({@link #name}, {@link #description},

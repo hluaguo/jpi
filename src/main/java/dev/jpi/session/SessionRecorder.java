@@ -17,6 +17,10 @@ import dev.jpi.json.Json;
  * event, flushed per line, so a crash loses at most the event being written. A
  * session doubles as the transcript (it is a consumer of the same events a UI sees)
  * and, via {@link SessionReplayer}, as a zero-network replay source.
+ *
+ * <p>Like any listener, IO failures here surface as {@link java.io.UncheckedIOException}
+ * on the thread driving the run — recording is best-effort by construction, and the
+ * caller decides whether a full disk should end the run.
  */
 public final class SessionRecorder implements Consumer<AgentEvent>, AutoCloseable {
 

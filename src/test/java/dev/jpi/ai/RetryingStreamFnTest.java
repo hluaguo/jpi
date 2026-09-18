@@ -207,12 +207,13 @@ class RetryingStreamFnTest {
 
     @Test
     void successfulStreamPassesThroughUntouched() {
-        FlakyProvider provider = flaky(0, ErrorKind.RATE_LIMIT);
+        List<AssistantMessageEvent> script = successScript(MODEL);
+        FlakyProvider provider = new FlakyProvider(0, ErrorKind.RATE_LIMIT, script);
         RetryingStreamFn retrying = new RetryingStreamFn(provider, new RetryPolicy(3, 1, 50));
 
         List<AssistantMessageEvent> events = collect(retrying.stream(MODEL, null, StreamOptions.none()));
 
-        assertEquals(successScript(MODEL), events);
+        assertEquals(script, events);
         assertEquals(1, provider.calls());
     }
 }

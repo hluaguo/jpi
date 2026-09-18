@@ -69,7 +69,8 @@ public final class RunStatsCollector implements Consumer<AgentEvent> {
     }
 
     public RunStats stats() {
+        boolean timed = startTs >= 0 && endTs >= startTs;
         return new RunStats(input, output, cacheRead, cacheWrite, cacheHits, cost,
-                endTs < startTs ? 0 : endTs - startTs, messages, toolResults);
+                timed ? endTs - startTs : 0, messages, toolResults);
     }
 }

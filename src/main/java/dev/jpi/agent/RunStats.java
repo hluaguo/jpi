@@ -16,7 +16,4 @@ public record RunStats(
         long durationMs,
         int messages,
         int toolResults) {
-
-    public static final RunStats ZERO =
-            new RunStats(0, 0, 0, 0, 0, 0.0, 0, 0, 0);
 }
