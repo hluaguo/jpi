@@ -96,7 +96,7 @@ class AgentTest {
                 .streamFn(provider)
                 .model(MODEL)
                 .tools(List.of(AgentLoopTest.tool("echo", args -> AgentToolResult.text("echoed"))))
-                .steeringMode(Agent.SteeringMode.ONE_AT_A_TIME)
+                .steeringMode(Agent.QueueMode.ONE_AT_A_TIME)
                 .build();
         agent.subscribe(e -> {
             if (e instanceof AgentEvent.ToolExecutionStart) {
@@ -127,7 +127,7 @@ class AgentTest {
                 .streamFn(provider)
                 .model(MODEL)
                 .tools(List.of(AgentLoopTest.tool("echo", args -> AgentToolResult.text("echoed"))))
-                .steeringMode(Agent.SteeringMode.ALL)
+                .steeringMode(Agent.QueueMode.ALL)
                 .build();
         agent.subscribe(e -> {
             if (e instanceof AgentEvent.ToolExecutionStart) {
@@ -241,6 +241,168 @@ class AgentTest {
     }
 
     @Test
+    void clearSteeringQueueDropsQueuedSteeringMessages() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "echo", Map.of())
+                .text("second")
+                .build();
+        Agent agent = Agent.builder()
+                .streamFn(provider)
+                .model(MODEL)
+                .tools(List.of(AgentLoopTest.tool("echo", args -> AgentToolResult.text("echoed"))))
+                .build();
+        agent.subscribe(e -> {
+            if (e instanceof AgentEvent.ToolExecutionStart) {
+                agent.steer("s1");
+                agent.steer("s2");
+                assertTrue(agent.hasQueuedMessages());
+                agent.clearSteeringQueue();
+                assertFalse(agent.hasQueuedMessages());
+            }
+        });
+
+        agent.prompt("go");
+
+        // nothing was injected: every LLM call saw exactly the transcript so far
+        assertEquals(2, provider.calls().size());
+        assertEquals(1, provider.calls().get(1).context().messages().stream()
+                .filter(m -> m instanceof UserMessage).count()); // just "go"
+    }
+
+    @Test
+    void followUpModeOneAtATimeInjectsOneFollowUpPerWouldStop() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .text("one")
+                .text("two")
+                .text("three")
+                .build();
+        Agent agent = Agent.builder()
+                .streamFn(provider)
+                .model(MODEL)
+                .followUpMode(Agent.QueueMode.ONE_AT_A_TIME)
+                .build();
+        boolean[] queued = new boolean[1];
+        agent.subscribe(e -> {
+            if (e instanceof AgentEvent.MessageEnd end
+                    && end.message() instanceof AssistantMessage a
+                    && a.stopReason() == StopReason.STOP
+                    && !queued[0]) {
+                queued[0] = true;
+                agent.followUp("f1");
+                agent.followUp("f2");
+            }
+        });
+
+        agent.prompt("go");
+
+        // one follow-up per would-stop: f1 before call 2, f2 before call 3
+        assertEquals(3, provider.calls().size());
+        assertEquals(1, provider.calls().get(1).context().messages().stream()
+                .filter(m -> m instanceof UserMessage u && text(u).equals("f1")).count());
+        assertEquals(1, provider.calls().get(2).context().messages().stream()
+                .filter(m -> m instanceof UserMessage u && text(u).equals("f2")).count());
+        assertFalse(agent.hasQueuedMessages());
+    }
+
+    @Test
+    void followUpModeAllInjectsEverythingAtOnce() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .text("one")
+                .text("two")
+                .build();
+        Agent agent = Agent.builder()
+                .streamFn(provider)
+                .model(MODEL)
+                .followUpMode(Agent.QueueMode.ALL)
+                .build();
+        boolean[] queued = new boolean[1];
+        agent.subscribe(e -> {
+            if (e instanceof AgentEvent.MessageEnd end
+                    && end.message() instanceof AssistantMessage a
+                    && a.stopReason() == StopReason.STOP
+                    && !queued[0]) {
+                queued[0] = true;
+                agent.followUp("f1");
+                agent.followUp("f2");
+            }
+        });
+
+        agent.prompt("go");
+
+        // both follow-ups ride in a single turn
+        assertEquals(2, provider.calls().size());
+        assertEquals(3, provider.calls().get(1).context().messages().stream()
+                .filter(m -> m instanceof UserMessage).count()); // "go" + f1 + f2
+    }
+
+    @Test
+    void clearAllQueuesEmptiesBothQueues() {
+        Agent agent = Agent.builder()
+                .streamFn(ScriptedProvider.builder().text("x").build())
+                .model(MODEL)
+                .build();
+        agent.steer("s");
+        agent.followUp("f");
+        assertTrue(agent.hasQueuedMessages());
+
+        agent.clearAllQueues();
+
+        assertFalse(agent.hasQueuedMessages());
+    }
+
+    @Test
+    void resetRejectsWhileStreaming() throws Exception {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "slow", Map.of())
+                .text("done")
+                .build();
+        CountDownLatch started = new CountDownLatch(1);
+        AgentTool slow = AgentLoopTest.tool("slow", args -> {
+            started.countDown();
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return AgentToolResult.text("ok");
+        });
+        Agent agent = Agent.builder().streamFn(provider).model(MODEL).tools(List.of(slow)).build();
+
+        Thread runner = new Thread(() -> agent.prompt("go"));
+        runner.start();
+        assertTrue(started.await(5, TimeUnit.SECONDS));
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, agent::reset);
+        assertTrue(thrown.getMessage().contains("streaming"));
+
+        agent.abort();
+        runner.join(5000);
+    }
+
+    @Test
+    void resetClearsTranscriptAndQueuesForANewRun() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .text("first")
+                .text("fresh")
+                .build();
+        Agent agent = Agent.builder().streamFn(provider).model(MODEL).build();
+        agent.prompt("go");
+        agent.steer("leftover");
+        agent.followUp("also leftover");
+
+        agent.reset();
+
+        assertTrue(agent.messages().isEmpty());
+        assertFalse(agent.hasQueuedMessages());
+
+        agent.prompt("new chat");
+        assertEquals(2, provider.calls().size());
+        // the new run starts from a clean transcript
+        assertEquals(1, provider.calls().get(1).context().messages().size());
+        assertEquals(2, agent.messages().size());
+    }
+
+    @Test
     void continueRunResumesWithoutNewUserMessage() {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .text("first")
@@ -277,6 +439,25 @@ class AgentTest {
         assertThrows(IllegalStateException.class, () -> agent.prompt("again"));
         agent.abort();
         runner.join(5000);
+    }
+
+    @Test
+    void agentWiresTransformContextIntoTheLoop() {
+        ScriptedProvider provider = ScriptedProvider.builder().text("hello").text("hello again").build();
+        Agent agent = Agent.builder()
+                .streamFn(provider)
+                .model(MODEL)
+                .loopConfig(AgentLoopConfig.builder()
+                        .transformContext((model, messages) -> List.of(messages.get(messages.size() - 1)))
+                        .build())
+                .build();
+
+        agent.prompt("keep");
+        agent.prompt("only this is sent");
+
+        // the second call's provider view kept only the latest message
+        assertEquals(2, provider.calls().size());
+        assertEquals(1, provider.calls().get(1).context().messages().size());
     }
 
     private static String text(UserMessage message) {

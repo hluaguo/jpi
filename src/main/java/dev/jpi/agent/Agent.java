@@ -25,11 +25,11 @@ import dev.jpi.util.CancellationToken;
  */
 public final class Agent {
 
-    /** How queued steering messages are drained between turns. */
-    public enum SteeringMode {
-        /** One steering message per turn. */
+    /** How queued messages in a queue are drained. Shared by both queues. */
+    public enum QueueMode {
+        /** One message per injection point. */
         ONE_AT_A_TIME,
-        /** All queued steering messages, each turn. */
+        /** All queued messages, each injection point. */
         ALL
     }
 
@@ -40,7 +40,8 @@ public final class Agent {
         private String systemPrompt;
         private ThinkingLevel thinkingLevel = ThinkingLevel.OFF;
         private List<AgentTool> tools = List.of();
-        private SteeringMode steeringMode = SteeringMode.ONE_AT_A_TIME;
+        private QueueMode steeringMode = QueueMode.ONE_AT_A_TIME;
+        private QueueMode followUpMode = QueueMode.ONE_AT_A_TIME;
         private AgentLoopConfig loopConfig;
 
         public Builder streamFn(StreamFn streamFn) {
@@ -68,8 +69,14 @@ public final class Agent {
             return this;
         }
 
-        public Builder steeringMode(SteeringMode steeringMode) {
+        public Builder steeringMode(QueueMode steeringMode) {
             this.steeringMode = steeringMode;
+            return this;
+        }
+
+        /** How the follow-up queue drains when the loop would stop. */
+        public Builder followUpMode(QueueMode followUpMode) {
+            this.followUpMode = followUpMode;
             return this;
         }
 
@@ -92,7 +99,8 @@ public final class Agent {
     private final Queue<Message> steering = new ConcurrentLinkedQueue<>();
     private final Queue<Message> followUps = new ConcurrentLinkedQueue<>();
     private final List<Consumer<AgentEvent>> listeners = new ArrayList<>();
-    private final SteeringMode steeringMode;
+    private final QueueMode steeringMode;
+    private final QueueMode followUpMode;
     private volatile CompletableFuture<Void> idle = new CompletableFuture<>();
 
     private String systemPrompt;
@@ -108,6 +116,7 @@ public final class Agent {
         this.thinkingLevel = builder.thinkingLevel;
         this.tools = List.copyOf(builder.tools);
         this.steeringMode = builder.steeringMode;
+        this.followUpMode = builder.followUpMode;
 
         AgentLoopConfig base = builder.loopConfig == null
                 ? AgentLoopConfig.builder().build()
@@ -117,6 +126,7 @@ public final class Agent {
                 .afterToolCall(base.afterToolCall())
                 .shouldStopAfterTurn(base.shouldStopAfterTurn())
                 .prepareNextTurn(base.prepareNextTurn())
+                .transformContext(base.transformContext())
                 .toolExecution(base.toolExecution())
                 .getSteeringMessages(this::drainSteering)
                 .getFollowUpMessages(this::drainFollowUps)
@@ -127,10 +137,10 @@ public final class Agent {
         this.loop = new AgentLoop(withThinking, effective);
     }
 
-    /** Drains queued steering messages per the configured {@link SteeringMode}. */
+    /** Drains queued steering messages per the configured {@link QueueMode}. */
     private List<Message> drainSteering() {
         List<Message> drained = new ArrayList<>();
-        if (steeringMode == SteeringMode.ALL) {
+        if (steeringMode == QueueMode.ALL) {
             Message message;
             while ((message = steering.poll()) != null) {
                 drained.add(message);
@@ -144,11 +154,19 @@ public final class Agent {
         return drained;
     }
 
+    /** Drains queued follow-up messages per the configured follow-up {@link QueueMode}. */
     private List<Message> drainFollowUps() {
         List<Message> drained = new ArrayList<>();
-        Message message;
-        while ((message = followUps.poll()) != null) {
-            drained.add(message);
+        if (followUpMode == QueueMode.ALL) {
+            Message message;
+            while ((message = followUps.poll()) != null) {
+                drained.add(message);
+            }
+        } else {
+            Message message = followUps.poll();
+            if (message != null) {
+                drained.add(message);
+            }
         }
         return drained;
     }
@@ -264,6 +282,44 @@ public final class Agent {
 
     public void followUp(Message message) {
         followUps.add(message);
+    }
+
+    /** How the follow-up queue drains when the loop would stop. */
+    public QueueMode followUpMode() {
+        return followUpMode;
+    }
+
+    /** Whether any steering or follow-up message is queued. */
+    public boolean hasQueuedMessages() {
+        return !steering.isEmpty() || !followUps.isEmpty();
+    }
+
+    /** Drops all queued steering messages. */
+    public void clearSteeringQueue() {
+        steering.clear();
+    }
+
+    /** Drops all queued follow-up messages. */
+    public void clearFollowUpQueue() {
+        followUps.clear();
+    }
+
+    /** Drops all queued steering and follow-up messages. */
+    public void clearAllQueues() {
+        clearSteeringQueue();
+        clearFollowUpQueue();
+    }
+
+    /**
+     * Clears the transcript and both queues for a fresh conversation (a UI "new
+     * chat"). Rejected while a run is in progress — abort first.
+     */
+    public void reset() {
+        if (streaming) {
+            throw new IllegalStateException("agent is streaming; abort() and wait for idle before reset()");
+        }
+        messages.clear();
+        clearAllQueues();
     }
 
     /** Requests cancellation of the current run; safe to call from any thread. */
