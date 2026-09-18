@@ -104,9 +104,11 @@ public class AgentLoop {
             }
             pending = List.of();
 
-            Context llmContext = new Context(currentSystemPrompt, messages, currentTools.stream()
-                    .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))
-                    .toList());
+            Context llmContext = new Context(currentSystemPrompt,
+                    config.transformContext().transform(currentModel, messages),
+                    currentTools.stream()
+                            .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))
+                            .toList());
             AssistantMessage assistant = streamAssistantResponse(currentModel, llmContext, messages, newMessages, signal, emit);
             stopReason = assistant.stopReason();
 

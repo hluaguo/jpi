@@ -62,6 +62,16 @@ public final class AgentLoopConfig {
         TurnPlan prepareNextTurn(Model model, AgentContext context, TurnResult lastTurn);
     }
 
+    /**
+     * Rewrites the message list handed to the provider before every call (pi's
+     * {@code transformContext}, the compaction hook). The loop's own transcript is
+     * never touched — only the provider's view — and the model is passed so guards
+     * can react to its context window.
+     */
+    public interface ContextTransformer {
+        List<Message> transform(Model model, List<Message> messages);
+    }
+
     /** How a batch of tool calls is executed. */
     public enum ToolExecution {
         /** One at a time, in source order; abort checked between calls. */
@@ -76,6 +86,7 @@ public final class AgentLoopConfig {
     private final FollowUpHook getFollowUpMessages;
     private final ShouldStopAfterTurnHook shouldStopAfterTurn;
     private final PrepareNextTurnHook prepareNextTurn;
+    private final ContextTransformer transformContext;
     private final ToolExecution toolExecution;
 
     private AgentLoopConfig(Builder builder) {
@@ -85,6 +96,7 @@ public final class AgentLoopConfig {
         this.getFollowUpMessages = builder.getFollowUpMessages;
         this.shouldStopAfterTurn = builder.shouldStopAfterTurn;
         this.prepareNextTurn = builder.prepareNextTurn;
+        this.transformContext = builder.transformContext;
         this.toolExecution = builder.toolExecution;
     }
 
@@ -116,6 +128,10 @@ public final class AgentLoopConfig {
         return prepareNextTurn;
     }
 
+    public ContextTransformer transformContext() {
+        return transformContext;
+    }
+
     public ToolExecution toolExecution() {
         return toolExecution;
     }
@@ -127,6 +143,7 @@ public final class AgentLoopConfig {
         private FollowUpHook getFollowUpMessages = () -> List.of();
         private ShouldStopAfterTurnHook shouldStopAfterTurn = (assistant, toolResults, turnIndex) -> false;
         private PrepareNextTurnHook prepareNextTurn = (model, context, lastTurn) -> new TurnPlan(model, context);
+        private ContextTransformer transformContext = (model, messages) -> messages;
         private ToolExecution toolExecution = ToolExecution.SEQUENTIAL;
 
         /** Permission gate: runs before every tool execution; a block skips {@code execute}. */
@@ -162,6 +179,12 @@ public final class AgentLoopConfig {
         /** Applied before every turn after the first; may swap model and/or context. */
         public Builder prepareNextTurn(PrepareNextTurnHook hook) {
             this.prepareNextTurn = hook;
+            return this;
+        }
+
+        /** Rewrites the provider-bound message list before every LLM call (context guard, compaction). */
+        public Builder transformContext(ContextTransformer hook) {
+            this.transformContext = hook;
             return this;
         }
 
