@@ -172,6 +172,15 @@ public final class ScriptedProvider implements StreamFn {
             });
         }
 
+        /** One call emitting the given events verbatim (session replay); the last must be terminal. */
+        public Builder events(List<AssistantMessageEvent> events) {
+            return add((model, context) -> {
+                AssistantMessageEventStream stream = new AssistantMessageEventStream();
+                events.forEach(stream::push);
+                return stream;
+            });
+        }
+
         private Builder add(Script script) {
             scripts.add(script);
             return this;
