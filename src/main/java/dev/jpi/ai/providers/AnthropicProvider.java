@@ -189,8 +189,26 @@ public final class AnthropicProvider implements StreamFn {
             }
         }
         List<Map<String, Object>> messages = new ArrayList<>();
-        for (Message message : context.messages()) {
-            messages.add(toWireMessage(message));
+        List<Message> source = context.messages();
+        for (int i = 0; i < source.size(); i++) {
+            if (source.get(i) instanceof ToolResultMessage) {
+                // pi: all consecutive tool results merge into ONE user message with
+                // multiple tool_result blocks — the shape the Messages API documents;
+                // one user turn per result would send N adjacent user messages for
+                // an N-call parallel batch
+                List<Map<String, Object>> blocks = new ArrayList<>();
+                while (i < source.size() && source.get(i) instanceof ToolResultMessage toolResult) {
+                    blocks.add(toolResultBlock(toolResult));
+                    i++;
+                }
+                i--;
+                Map<String, Object> wire = new LinkedHashMap<>();
+                wire.put("role", "user");
+                wire.put("content", blocks);
+                messages.add(wire);
+                continue;
+            }
+            messages.add(toWireMessage(source.get(i)));
         }
         if (cacheControl != null && !messages.isEmpty()) {
             Map<String, Object> last = messages.get(messages.size() - 1);
@@ -284,20 +302,22 @@ public final class AnthropicProvider implements StreamFn {
             wire.put("content", content);
             return wire;
         }
-        if (message instanceof ToolResultMessage toolResult) {
-            Map<String, Object> wire = new LinkedHashMap<>();
-            wire.put("role", "user");
-            Map<String, Object> block = new LinkedHashMap<>();
-            block.put("type", "tool_result");
-            block.put("tool_use_id", toolResult.toolCallId());
-            if (toolResult.isError()) {
-                block.put("is_error", true);
-            }
-            block.put("content", toWireBlocks(toolResult.content()));
-            wire.put("content", List.of(block));
-            return wire;
+        if (message instanceof ToolResultMessage) {
+            throw new AssertionError("tool results are merged by buildRequest, never converted one-by-one");
         }
         throw new IllegalArgumentException("unsupported message type: " + message.getClass());
+    }
+
+    /** One {@code tool_result} block; consecutive blocks share a single user message. */
+    private static Map<String, Object> toolResultBlock(ToolResultMessage toolResult) {
+        Map<String, Object> block = new LinkedHashMap<>();
+        block.put("type", "tool_result");
+        block.put("tool_use_id", toolResult.toolCallId());
+        if (toolResult.isError()) {
+            block.put("is_error", true);
+        }
+        block.put("content", toWireBlocks(toolResult.content()));
+        return block;
     }
 
     private static List<Map<String, Object>> toWireBlocks(List<Content> blocks) {

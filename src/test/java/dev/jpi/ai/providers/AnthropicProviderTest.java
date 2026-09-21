@@ -90,6 +90,38 @@ class AnthropicProviderTest {
     }
 
     @Test
+    void parallelToolResultBatchMergesIntoOneUserMessage() throws Exception {
+        Context context = new Context(
+                null,
+                List.of(
+                        new AssistantMessage(MODEL.api(), MODEL.provider(), MODEL.id(),
+                                List.of(
+                                        new Content.ToolCall("toolu_1", "get_weather", Map.of()),
+                                        new Content.ToolCall("toolu_2", "get_time", Map.of())),
+                                Usage.ZERO, StopReason.TOOL_USE, null, null, 2),
+                        new ToolResultMessage("toolu_1", "get_weather",
+                                List.of(new Content.Text("sunny")), Map.of(), false, 3),
+                        new ToolResultMessage("toolu_2", "get_time",
+                                List.of(new Content.Text("noon")), Map.of(), false, 4)),
+                List.of());
+
+        Map<String, Object> request = AnthropicProvider.buildRequest(MODEL, context);
+
+        // pi: all consecutive tool results ride in ONE user message with multiple
+        // tool_result blocks — the shape the Messages API documents; one user turn
+        // per result would send N adjacent user messages for an N-call batch
+        JsonNode messages = Json.MAPPER.readTree(Json.write(request)).path("messages");
+        assertEquals(2, messages.size(), "assistant + ONE merged user message for the batch");
+        assertEquals("user", messages.get(1).path("role").asText());
+        JsonNode content = messages.get(1).path("content");
+        assertEquals(2, content.size());
+        assertEquals("tool_result", content.get(0).path("type").asText());
+        assertEquals("toolu_1", content.get(0).path("tool_use_id").asText());
+        assertEquals("tool_result", content.get(1).path("type").asText());
+        assertEquals("toolu_2", content.get(1).path("tool_use_id").asText());
+    }
+
+    @Test
     void requestMarksOnlyTheLastToolAndLastUserBlockForCaching() throws Exception {
         Context context = new Context(
                 null,
