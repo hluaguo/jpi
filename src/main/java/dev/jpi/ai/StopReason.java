@@ -8,6 +8,10 @@ package dev.jpi.ai;
  * and failure ({@code ERROR}/{@code ABORTED}) — so a failure needs no separate type,
  * no exception channel, and no special transcript handling. It is data the consumer
  * inspects, exactly like any other stop reason.
+ *
+ * <p>{@code DEFERRED} is reserved: pi produces it from its deferred-tools provider
+ * (tool search loads definitions lazily mid-conversation), which jpi excludes from
+ * scope — the value is kept so transcripts recorded by fuller pi ports still parse.
  */
 public enum StopReason {
     PENDING,

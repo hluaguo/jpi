@@ -170,15 +170,6 @@ final class AnthropicStreamParser {
         }
     }
 
-    private int toolCallIndex(String id) {
-        for (int i = 0; i < content.size(); i++) {
-            if (content.get(i) instanceof Content.ToolCall call && call.id().equals(id)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
     private String toolCallId(int index) {
         return content.get(index) instanceof Content.ToolCall call ? call.id() : "";
     }

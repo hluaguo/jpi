@@ -41,7 +41,10 @@ public final class SessionReader {
             }
             boolean tornTail = i == lines.size() - 1;
             ObjectNode parsed = parse(line);
-            if (parsed == null) {
+            if (parsed == null || !isWellFormed(parsed)) {
+                // structurally invalid (valid JSON, but no ts/event envelope) is the
+                // same corruption a torn write leaves — pi's reader skips junk lines;
+                // jpi's stricter contract still tolerates a torn final line
                 if (tornTail) {
                     break;
                 }
@@ -51,6 +54,12 @@ public final class SessionReader {
                     Json.MAPPER.convertValue(parsed.get("event"), AgentEvent.class)));
         }
         return records;
+    }
+
+    /** A line is well-formed when it carries the recorder's envelope: a numeric ts and an event object. */
+    private static boolean isWellFormed(ObjectNode parsed) {
+        return parsed.hasNonNull("ts") && parsed.get("ts").isNumber()
+                && parsed.has("event") && parsed.get("event").isObject();
     }
 
     private static ObjectNode parse(String line) {

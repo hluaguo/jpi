@@ -206,6 +206,19 @@ class OpenAIProviderTest {
     }
 
     @Test
+    void endpointPrefersTheModelBaseUrlOverTheConstructorDefault() {
+        Model hosted = new Model("gpt-4o", "openai-completions", "openai",
+                "https://model-host.example", 128_000, 4096);
+        assertEquals("https://model-host.example/v1/chat/completions",
+                OpenAICompletionsProvider.endpoint(hosted, "https://api.openai.com", "/v1/chat/completions"));
+
+        // a blank model baseUrl (pi's DEFAULT_MODEL) falls back to the constructor value
+        Model blank = new Model("gpt-4o", "openai-completions", "openai", "", 128_000, 4096);
+        assertEquals("https://api.openai.com/v1/chat/completions",
+                OpenAICompletionsProvider.endpoint(blank, "https://api.openai.com", "/v1/chat/completions"));
+    }
+
+    @Test
     void pumpObservesCancellationBetweenLines() {
         dev.jpi.util.CancellationToken cancel = new dev.jpi.util.CancellationToken();
         List<String> lines = List.of("data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}", "",

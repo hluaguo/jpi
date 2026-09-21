@@ -162,6 +162,25 @@ class SessionTest {
         assertThrows(IOException.class, () -> SessionReader.read(dir.resolve("run.jsonl")));
     }
 
+    @Test
+    void structurallyInvalidLinesAreCorruptNotACrash() throws IOException {
+        // valid JSON without the ts/event envelope: same corrupt-line contract as
+        // unparsable JSON, never an NPE (pi's reader skips junk lines; jpi's stricter
+        // contract still distinguishes a torn final line)
+        recordRun("run.jsonl");
+        List<String> lines = Files.readAllLines(dir.resolve("run.jsonl"), StandardCharsets.UTF_8);
+        lines.add(lines.size() - 1, "{\"v\":1}");
+        Files.write(dir.resolve("run.jsonl"), String.join("\n", lines).getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(IOException.class, () -> SessionReader.read(dir.resolve("run.jsonl")));
+
+        // as a torn final line it is tolerated like any other truncated write
+        List<String> tailOnly = new ArrayList<>();
+        tailOnly.add("{}");
+        Files.write(dir.resolve("torn.jsonl"), String.join("\n", tailOnly).getBytes(StandardCharsets.UTF_8));
+        assertEquals(List.of(), SessionReader.read(dir.resolve("torn.jsonl")));
+    }
+
     // --- listing ---------------------------------------------------------------------
 
     @Test

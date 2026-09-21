@@ -56,7 +56,7 @@ public final class AnthropicProvider implements StreamFn {
         String effectiveKey = options.apiKey() != null ? options.apiKey() : apiKey;
         HttpRequest request;
         try {
-            request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/messages"))
+            request = HttpRequest.newBuilder(URI.create(endpoint(model, baseUrl, "/v1/messages")))
                     .timeout(Duration.ofSeconds(600))
                     .header("Content-Type", "application/json")
                     .header("x-api-key", effectiveKey)
@@ -124,6 +124,16 @@ public final class AnthropicProvider implements StreamFn {
             }
             processLine.accept(lines.next());
         }
+    }
+
+    /**
+     * The request URL: pi providers take the endpoint from the model
+     * ({@code baseURL: model.baseUrl}); the constructor default is jpi's fallback for
+     * quick clients and models recorded without a baseUrl.
+     */
+    static String endpoint(Model model, String fallback, String path) {
+        String base = model.baseUrl() != null && !model.baseUrl().isBlank() ? model.baseUrl() : fallback;
+        return base + path;
     }
 
     /** An aborted request is data: stopReason ABORTED, never a thrown error. */
