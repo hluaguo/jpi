@@ -56,17 +56,25 @@ public final class BashTool implements AgentTool {
             process = new ProcessBuilder("bash", "-c", command)
                     .start();
             signal.onAbort(process::destroy);
+            // the pipes must drain concurrently with the wait (pi attaches data
+            // handlers at spawn): a child out-producing the OS pipe buffer blocks
+            // on write, and an undrained waitFor misreports a healthy command as
+            // timed out
+            StringBuilder stdout = new StringBuilder();
+            StringBuilder stderr = new StringBuilder();
+            Thread outReader = drain(process.getInputStream(), stdout);
+            Thread errReader = drain(process.getErrorStream(), stderr);
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                joinQuietly(outReader, errReader);
                 throw new IllegalStateException("command timed out after " + timeoutSeconds + "s");
             }
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            joinQuietly(outReader, errReader);
             int exit = process.exitValue();
             String output = truncate("exit code: " + exit
-                    + (stdout.isBlank() ? "" : "\n" + stdout)
-                    + (stderr.isBlank() ? "" : "\nstderr: " + stderr));
+                    + (stdout.isEmpty() ? "" : "\n" + stdout)
+                    + (stderr.isEmpty() ? "" : "\nstderr: " + stderr));
             return new AgentToolResult(List.of(new Content.Text(output)),
                     Map.of("exitCode", exit), null, false);
         } catch (Exception e) {
@@ -75,6 +83,29 @@ public final class BashTool implements AgentTool {
             if (process != null) {
                 process.destroyForcibly();
             }
+        }
+    }
+
+    private static Thread drain(java.io.InputStream stream, StringBuilder into) {
+        Thread reader = new Thread(() -> {
+            try (var in = new java.io.InputStreamReader(stream, StandardCharsets.UTF_8)) {
+                char[] buffer = new char[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    into.append(buffer, 0, read);
+                }
+            } catch (Exception ignored) {
+                // stream teardown on destroy; capture whatever we got
+            }
+        });
+        reader.setDaemon(true);
+        reader.start();
+        return reader;
+    }
+
+    private static void joinQuietly(Thread... readers) throws InterruptedException {
+        for (Thread reader : readers) {
+            reader.join(TimeUnit.SECONDS.toMillis(5));
         }
     }
 
