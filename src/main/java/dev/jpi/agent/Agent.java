@@ -135,7 +135,8 @@ public final class Agent {
                 .build();
         StreamFn streamFn = builder.streamFn;
         StreamFn withThinking = (model, context, options) ->
-                streamFn.stream(model, context, new StreamOptions(options.apiKey(), thinkingLevel, options.cancel()));
+                streamFn.stream(model, context, new StreamOptions(options.apiKey(), thinkingLevel,
+                        options.cancel(), options.promptCaching()));
         this.loop = new AgentLoop(withThinking, effective);
     }
 
@@ -222,7 +223,13 @@ public final class Agent {
      */
     public synchronized Runnable subscribe(Consumer<AgentEvent> listener) {
         listeners.add(listener);
-        return () -> listeners.remove(listener);
+        // removal must share the monitor: an unsynchronized ArrayList.remove can tear
+        // a concurrent emit's List.copyOf snapshot (pi: Set.delete is atomic in JS)
+        return () -> {
+            synchronized (this) {
+                listeners.remove(listener);
+            }
+        };
     }
 
     private synchronized void emit(AgentEvent event) {
