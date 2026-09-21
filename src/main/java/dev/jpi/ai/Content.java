@@ -1,6 +1,7 @@
 package dev.jpi.ai;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -35,7 +36,10 @@ public sealed interface Content permits Content.Text, Content.Image, Content.Thi
     /** A tool invocation requested by the model; {@code arguments} is the parsed JSON object. */
     record ToolCall(String id, String name, Map<String, Object> arguments) implements Content {
         public ToolCall {
-            arguments = arguments == null ? Map.of() : Collections.unmodifiableMap(arguments);
+            // defensive copy, not a view — same snapshot semantics as
+            // ToolResultMessage.details (LinkedHashMap tolerates JSON null values)
+            arguments = arguments == null ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(arguments));
         }
     }
 }
