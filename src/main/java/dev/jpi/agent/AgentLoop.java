@@ -127,10 +127,16 @@ public class AgentLoop {
             if (!toolCalls.isEmpty()) {
                 List<ExecResult> results;
                 if (assistant.stopReason() == StopReason.LENGTH) {
-                    results = toolCalls.stream()
-                            .map(tc -> new ExecResult(errorResult(tc,
-                                    "tool call arguments may be truncated (stop_reason: length)"), false))
-                            .toList();
+                    // the calls never run, but consumers see the same start/end shape as
+                    // any other tool result in the transcript (pi: failToolCallsFromTruncatedMessage)
+                    results = new ArrayList<>();
+                    for (Content.ToolCall tc : toolCalls) {
+                        emit.accept(new AgentEvent.ToolExecutionStart(tc.id(), tc.name(), tc.arguments()));
+                        ExecResult error = new ExecResult(errorResult(tc,
+                                "tool call arguments may be truncated (stop_reason: length)"), false);
+                        emit.accept(new AgentEvent.ToolExecutionEnd(tc.id(), tc.name(), error.message()));
+                        results.add(error);
+                    }
                 } else {
                     results = executeToolCalls(currentTools, toolCalls, assistant,
                             new AgentContext(currentSystemPrompt, messages, currentTools), signal, emit);

@@ -212,8 +212,34 @@ class AgentLoopTest {
                 List.of(UserMessage.of("go")),
                 events::add);
 
+        // pi's failToolCallsFromTruncatedMessage: each failed call still emits
+        // tool_execution_start + tool_execution_end (carrying the error result),
+        // in source order, before the tool-result message events
+        assertEquals(
+                List.of("agent_start", "turn_start",
+                        "message_start", "message_end",
+                        "message_start", "message_update", "message_update", "message_update", "message_end",
+                        "tool_execution_start", "tool_execution_end",
+                        "message_start", "message_end",
+                        "turn_end",
+                        "turn_start",
+                        "message_start", "message_update", "message_update", "message_update", "message_end",
+                        "turn_end",
+                        "agent_end"),
+                labels(events));
+
         assertTrue(executed.isEmpty(), "no tool may execute after a length stop");
-        assertFalse(labels(events).contains("tool_execution_start"));
+
+        // the end event carries the same error result the transcript appends
+        AgentEvent.ToolExecutionEnd end = events.stream()
+                .filter(AgentEvent.ToolExecutionEnd.class::isInstance)
+                .map(AgentEvent.ToolExecutionEnd.class::cast)
+                .findFirst().orElseThrow();
+        assertEquals("call_1", end.toolCallId());
+        assertEquals("read", end.toolName());
+        assertTrue(end.result().isError());
+        assertEquals("Error: tool call arguments may be truncated (stop_reason: length)",
+                ((Content.Text) end.result().content().get(0)).text());
 
         ToolResultMessage toolResult = (ToolResultMessage) result.messages().get(2);
         assertTrue(toolResult.isError());
