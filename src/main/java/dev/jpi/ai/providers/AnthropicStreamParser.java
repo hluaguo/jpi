@@ -199,7 +199,6 @@ final class AnthropicStreamParser {
         }
     }
 
-
     private static StopReason mapStopReason(String anthropicReason) {
         return switch (anthropicReason) {
             case "max_tokens" -> StopReason.LENGTH;

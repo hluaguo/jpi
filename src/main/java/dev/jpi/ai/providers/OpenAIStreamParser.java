@@ -188,7 +188,6 @@ final class OpenAIStreamParser {
         }
     }
 
-
     private static StopReason mapStopReason(String finishReason) {
         return switch (finishReason) {
             case "length" -> StopReason.LENGTH;

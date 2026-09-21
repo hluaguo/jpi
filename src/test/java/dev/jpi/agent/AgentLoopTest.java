@@ -193,6 +193,61 @@ class AgentLoopTest {
     }
 
     @Test
+    void emptySalvagedArgumentsFailValidationNotTheMessage() {
+        // what the parsers yield for unrepairable argument JSON is an empty map;
+        // the loop must fail just that call (schema validation) and keep the turn
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCall("call_1", "read", Map.of())
+                .text("retried")
+                .build();
+        List<String> calls = new ArrayList<>();
+        AgentTool read = new AgentTool() {
+            @Override
+            public String name() {
+                return "read";
+            }
+
+            @Override
+            public String description() {
+                return "read a file";
+            }
+
+            @Override
+            public Map<String, Object> parameters() {
+                return Map.of("type", "object",
+                        "properties", Map.of("path", Map.of("type", "string")),
+                        "required", List.of("path"));
+            }
+
+            @Override
+            public AgentToolResult execute(String toolCallId, Map<String, Object> args,
+                                           CancellationToken signal, Consumer<Map<String, Object>> onUpdate) {
+                calls.add("executed");
+                return AgentToolResult.text("nope");
+            }
+        };
+        AgentLoop loop = new AgentLoop(provider);
+
+        List<AgentEvent> events = new ArrayList<>();
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(read)),
+                List.of(UserMessage.of("go")),
+                events::add);
+
+        assertTrue(calls.isEmpty(), "an empty salvaged args map must not execute");
+        ToolResultMessage toolResult = (ToolResultMessage) result.messages().get(2);
+        assertTrue(toolResult.isError());
+        assertEquals("Error: Validation failed for tool \"read\":\n  - path: is required",
+                ((Content.Text) toolResult.content().get(0)).text());
+
+        // the message survived: stopReason is toolUse, not ERROR, and the model re-issues
+        assertEquals(StopReason.TOOL_USE, ((AssistantMessage) result.messages().get(1)).stopReason());
+        assertEquals(2, provider.calls().size());
+        assertEquals(StopReason.STOP, result.stopReason());
+    }
+
+    @Test
     void lengthStopFailsAllToolCallsAsTruncatedWithoutExecuting() {
         ScriptedProvider provider = ScriptedProvider.builder()
                 .truncatedToolCall("call_1", "read", Map.of("path", "a.txt"))
