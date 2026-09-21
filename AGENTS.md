@@ -10,8 +10,6 @@ boundary, and wire adapters, as a small dependency-light OSS library.
 
 - Out of scope (don't add): TUI, session trees, compaction engine, extensions,
   model catalogs, OAuth.
-- Read before larger changes: `REPORT.md` (design reference), `PROMPT.md`
-  (tickets T0–T8 + agreed test seams), `PROMPT-ADDENDUM.md` (T9–T14, after `v0.1.0`).
 - Single Maven module, package root `dev.jpi`. Dependencies: **Jackson + JUnit 5
   only**; HTTP via `java.net.http`; hand-rolled SSE parser.
 - All tests offline & deterministic (`ScriptedProvider`; adapters tested against

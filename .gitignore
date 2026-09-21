@@ -3,3 +3,11 @@ target/
 *.iml
 .DS_Store
 .vscode/
+
+# local planning docs — kept on disk, not part of the published repo
+PROMPT.md
+PROMPT-ADDENDUM.md
+REPORT.md
+
+# demo runtime artifact (Demo.java writes it)
+demo.txt

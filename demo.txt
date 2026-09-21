@@ -1,1 +1,0 @@
-jpi is a minimal Java port of the pi agent core.
