@@ -18,10 +18,12 @@ public final class CancellationToken {
 
     /** Marks the token aborted; idempotent. Runs listener callbacks in registration order. */
     public void abort() {
-        if (aborted) {
-            return;
-        }
+        // the check must sit inside the monitor: pi's single-threaded Set.delete is
+        // atomic, here two callers racing past an outer check would each run the list
         synchronized (this) {
+            if (aborted) {
+                return;
+            }
             aborted = true;
             List.copyOf(listeners).forEach(Runnable::run);
         }
