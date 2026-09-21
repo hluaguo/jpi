@@ -3,6 +3,7 @@ package dev.jpi.agent;
 import dev.jpi.ai.AssistantMessage;
 import dev.jpi.ai.Content;
 import dev.jpi.ai.Model;
+import dev.jpi.ai.Message;
 import dev.jpi.ai.StopReason;
 import dev.jpi.ai.ThinkingLevel;
 import dev.jpi.ai.ToolResultMessage;
@@ -15,10 +16,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import dev.jpi.util.CancellationToken;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -224,6 +227,28 @@ class AgentTest {
         assertFalse(agent.isStreaming());
         assertTrue(agent.waitForIdle().isDone());
         assertEquals(1, provider.calls().size(), "no second LLM call after abort");
+    }
+
+    @Test
+    void runThrowingListenerStillCompletesIdleAndRecordsFailureAsData() {
+        ScriptedProvider provider = ScriptedProvider.builder().text("hello").build();
+        Agent agent = Agent.builder().streamFn(provider).model(MODEL).build();
+        AtomicBoolean exploded = new AtomicBoolean();
+        agent.subscribe(e -> {
+            if (e instanceof AgentEvent.MessageEnd && exploded.compareAndSet(false, true)) {
+                throw new IllegalStateException("listener exploded");
+            }
+        });
+
+        agent.prompt("hi"); // must return rather than hang or rethrow
+
+        assertTrue(agent.waitForIdle().isDone());
+        assertFalse(agent.isStreaming());
+        List<Message> transcript = agent.messages();
+        Message last = transcript.get(transcript.size() - 1);
+        assertInstanceOf(AssistantMessage.class, last);
+        assertEquals(StopReason.ERROR, ((AssistantMessage) last).stopReason());
+        assertEquals("listener exploded", ((AssistantMessage) last).errorMessage());
     }
 
     @Test

@@ -12,6 +12,7 @@ import dev.jpi.ai.AssistantMessageEventStream;
 import dev.jpi.ai.Context;
 import dev.jpi.ai.Message;
 import dev.jpi.ai.Model;
+import dev.jpi.ai.StopReason;
 import dev.jpi.ai.StreamFn;
 import dev.jpi.ai.StreamOptions;
 import dev.jpi.ai.ThinkingLevel;
@@ -273,11 +274,28 @@ public final class Agent {
             AgentContext context = new AgentContext(systemPrompt, List.copyOf(messages), tools);
             AgentLoop.LoopResult result = loop.run(model, context, prompts, token, this::emit);
             messages.addAll(result.messages());
+        } catch (Throwable t) {
+            // pi: handleRunFailure — a run that throws must still end as data (an ERROR/ABORTED
+            // assistant message in the transcript), never as a wedged agent or an escaped exception
+            emitFailureMessage(t, token);
         } finally {
+            // pi: finishRun — runs even on the failure path so waitForIdle() always completes
             currentToken = null;
             streaming = false;
+            runIdle.complete(null);
         }
-        runIdle.complete(null);
+    }
+
+    /** Synthesizes the terminal failure message for a run that threw and appends it to the transcript. */
+    private void emitFailureMessage(Throwable t, CancellationToken token) {
+        AssistantMessage failure = AssistantMessage.pending(model)
+                .withStopReason(token.isAborted() ? StopReason.ABORTED : StopReason.ERROR)
+                .withErrorMessage(t.getMessage() == null ? t.toString() : t.getMessage());
+        emit(new AgentEvent.MessageStart(failure));
+        emit(new AgentEvent.MessageEnd(failure));
+        emit(new AgentEvent.TurnEnd(failure, List.of()));
+        emit(new AgentEvent.End(List.of(failure)));
+        messages.add(failure);
     }
 
     /** Queues a steering message, injected after the current turn's tools finish. */
