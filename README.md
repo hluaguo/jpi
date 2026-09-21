@@ -1,28 +1,48 @@
 # jpi
 
 A minimal Java 21 port of the core of the [pi coding agent](https://github.com/badlogic/pi-mono):
-the agent loop, the streaming LLM boundary, and provider adapters.
+the agent loop, the streaming LLM boundary, and provider adapters — a small,
+dependency-light library for building coding agents on the JVM.
 
-- **Pure loop**: `AgentLoop` is a pure function — `(model, context, prompts) → events + transcript`.
+- **Pure loop** — `AgentLoop` is a pure function: `(model, context, prompts) → events + transcript`.
   All effects (LLM, tools) sit behind two small interfaces (`StreamFn`, `AgentTool`).
-- **Failures are data**: provider errors arrive as assistant messages with
+- **Failures are data** — provider errors arrive as assistant messages with
   `stopReason = ERROR/ABORTED`; tool throws become error tool results. The loop never
-  throws across boundaries.
-- **Protocol-first streaming**: every provider (Anthropic Messages, OpenAI-compatible
+  throws across boundaries, and a crashed run still ends as a well-formed transcript.
+- **Protocol-first streaming** — every provider (Anthropic Messages, OpenAI-compatible
   chat completions, or a scripted fake) normalizes to the same `AssistantMessageEvent`
-  vocabulary.
-- **Hooks, not features**: permissions = `beforeToolCall`; steering/follow-up queues;
-  `prepareNextTurn` for mid-run model/context swaps.
+  vocabulary; aborts cancel the in-flight request and surface as `ABORTED`, promptly.
+- **Hooks, not features** — permissions = `beforeToolCall`; steering/follow-up queues;
+  `prepareNextTurn` for mid-run model/context swaps; `transformContext` as the
+  compaction point.
 
-Dependencies: Jackson + JUnit 5 only. HTTP via `java.net.http` with a hand-rolled SSE parser.
-The test suite is fully offline.
+Dependencies: Jackson + JUnit 5 only. HTTP via `java.net.http` with a hand-rolled SSE
+parser. The test suite (140+ tests) is fully offline and deterministic.
 
-## Quickstart
+## Getting it
+
+Requires Java 21+ and Maven. jpi is not on Maven Central yet — build and install
+locally:
+
+```sh
+git clone git@github.com:hluaguo/jpi.git
+cd jpi && mvn install
+```
+
+```xml
+<dependency>
+  <groupId>dev.jpi</groupId>
+  <artifactId>jpi</artifactId>
+  <version>0.2.0</version>
+</dependency>
+```
+
+## Quickstart — scripted, zero network
 
 ```java
-// script the LLM: one tool call, then one answer — zero network
+// script the LLM: one tool call, then one answer — no API key, no network
 ScriptedProvider provider = ScriptedProvider.builder()
-        .toolCall("call_1", "read", Map.of("path", "demo.txt"))
+        .toolCall("call_1", "read", Map.of("path", "hello.txt"))
         .text("The file says: hello from jpi!")
         .build();
 
@@ -40,62 +60,89 @@ agent.subscribe(event -> {
     }
 });
 
-agent.prompt("read demo.txt and tell me what's in it");
+agent.prompt("read hello.txt and tell me what's in it");
 ```
 
-Run the demo:
+## Real providers
 
+```java
+Agent agent = Agent.builder()
+        .streamFn(new AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")))
+        .model(new Model("claude-sonnet-4-5", "anthropic-messages", "anthropic",
+                "https://api.anthropic.com", 200_000, 4096))
+        .tools(List.of(new BashTool(), new ReadTool(), new WriteTool()))
+        .build();
+
+agent.subscribe(event -> System.out.println(event));
+agent.prompt("look around this repository and write a one-paragraph summary");
+
+agent.abort();               // cancels tools *and* the in-flight LLM request
+agent.waitForIdle().join();  // resolves only after the run fully settled
 ```
+
+`OpenAICompletionsProvider` works with any OpenAI-compatible endpoint; both adapters
+retry transient failures with classified backoff and mark requests for provider
+prefix caching.
+
+## Packages
+
+| Package | What lives there |
+|---|---|
+| `dev.jpi.agent` | `Agent`, the pure `AgentLoop`, events, tools, hooks, pruning, run stats |
+| `dev.jpi.ai` | message model, streaming protocol, retry, cost, error classification |
+| `dev.jpi.ai.providers` | Anthropic Messages + OpenAI-compatible adapters, `ScriptedProvider`, SSE |
+| `dev.jpi.json` | golden-pinned JSON wire contract for messages and events |
+| `dev.jpi.session` | JSONL session recorder/reader/replayer |
+| `dev.jpi.tools` | `bash`, `read`, `write` |
+| `dev.jpi.util` | `CancellationToken` |
+
+## The wire contract (`dev.jpi.json`)
+
+`Json.MAPPER` serializes/deserializes `Message`s, content blocks and `AgentEvent`s
+with a `type` discriminator per sealed hierarchy (`user`/`assistant`/`toolResult`,
+`text_delta`, `message_start`, …). Unknown fields are tolerated on read; the exact
+format is pinned by golden files under `src/test/resources/golden/`. This is the
+payload an SSE/RPC bridge streams.
+
+## Resilience, costs, sessions
+
+- **Retry** — wrap any `StreamFn` in `RetryingStreamFn`: exponential backoff with
+  jitter, failures classified once at the adapter boundary (`AUTH`, `RATE_LIMIT`,
+  `SERVER`, `NETWORK`, `CONTEXT_OVERFLOW`), only transient kinds retried, backoff
+  abort-aware, failed attempts buffered so consumers see the final attempt only.
+- **Costs** — provider-reported `Usage` is authoritative; `CostCalculator` joins it
+  with per-million `Model.Cost` rates; `RunStatsCollector` reduces a run's events
+  into tokens/cost/duration stats.
+- **Sessions** — `SessionRecorder` appends a flushed JSONL line per event;
+  `SessionReader` tolerates a torn final line; `SessionReplayer` rebuilds the
+  transcript and can replay a recorded conversation through `ScriptedProvider`
+  offline.
+- **Context guard** — `transformContext` rewrites the provider-bound message list
+  per call; `DeterministicPruner` stubs old tool results (oversize first) when
+  usage crosses a share of the context window, keeping every tool call paired
+  with its result.
+
+## Demo
+
+```sh
 mvn -q compile exec:java        # scripted, offline; add --live with ANTHROPIC_API_KEY for the real API
 mvn test                        # full offline suite
 ```
 
-## JSON wire contract (`dev.jpi.json`)
+## Development
 
-`Json.MAPPER` serializes/deserializes `Message`s, content blocks and `AgentEvent`s
-with a `type` discriminator per sealed hierarchy (pi's RPC vocabulary:
-`user`/`assistant`/`toolResult`, `text_delta`, `message_start`, …). Unknown fields
-are tolerated on read; the exact format is pinned by golden files under
-`src/test/resources/golden/` (regenerate intentionally via `DumpGoldenFiles`).
-This is the payload an SSE/RPC bridge streams.
-
-## Provider resilience (`dev.jpi.ai`)
-
-Wrap any `StreamFn` in `RetryingStreamFn` for retries with exponential backoff and
-jitter. Failures are classified once, at the adapter boundary, into `ErrorKind`
-(`AUTH`, `RATE_LIMIT`, `SERVER`, `NETWORK`, `CONTEXT_OVERFLOW`, `UNKNOWN`) and
-carried on the error `AssistantMessage`'s `diagnostics` field; only transient kinds
-are retried, `AUTH`/overflow/abort never are. Backoff waits poll the
-`CancellationToken` on `StreamOptions`, and a backoff past `maxRetryDelayMs` fails
-fast. Failed attempts are buffered, so a consumer only ever sees the final attempt.
-
-## Costs & run stats (`dev.jpi.ai` + `dev.jpi.agent`)
-
-Token counts are provider-reported (`Usage`) and treated as authoritative — jpi
-never estimates. `Model.Cost` publishes per-million rates and `CostCalculator`
-joins the two. `RunStatsCollector` subscribes to a run's `AgentEvent`s and reduces
-them into `RunStats`: tokens by kind, cache hits, cost, duration, message/tool
-counts.
-
-## Sessions (`dev.jpi.session`)
-
-`SessionRecorder` appends every `AgentEvent` to a versioned JSONL file (one
-`{"v":1,"ts":…,"event":…}` line per event, flushed per line). `SessionReader`
-lists sessions and tolerates a torn final line (crash mid-write). `SessionReplayer`
-rebuilds the transcript, feeds events verbatim to a UI, and turns recorded
-assistant responses into a `ScriptedProvider` — replay a recorded conversation
-with zero network.
-
-## Context guard (`dev.jpi.agent`)
-
-`AgentLoopConfig.transformContext` is the compaction hook: it rewrites the
-provider-bound message list before every call; the transcript stays intact.
-`DeterministicPruner` triggers when the last provider-reported usage crosses a
-threshold share of the model's context window and stubs old tool results in place
-(oversize first), keeping the recent tail untouched and every toolCall paired with
-its toolResult.
+`mvn test` runs the entire suite offline — providers are tested against canned SSE
+bytes and an injectable clock; no network, ever. [`AGENTS.md`](AGENTS.md) documents
+the working agreement (commit format, duplication and documentation standards) for
+humans and coding agents alike.
 
 ## Status
 
-v0.2.0. See `PROMPT.md` + `PROMPT-ADDENDUM.md` for the build plan and `REPORT.md`
-for the design reference (the studied pi architecture this port follows).
+v0.2.0 — the API surface is still evolving; expect small breaking changes between
+minor versions.
+
+## License
+
+[MIT](LICENSE) — jpi is a port of [pi](https://github.com/badlogic/pi-mono)
+(MIT, Mario Zechner / earendil-works); the upstream license notice is preserved
+in the LICENSE file.
