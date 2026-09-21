@@ -6,9 +6,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import dev.jpi.ai.AssistantMessage;
@@ -66,8 +68,13 @@ public final class AnthropicProvider implements StreamFn {
             return out;
         }
 
-        http.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
-                .thenAccept(response -> {
+        CompletableFuture<HttpResponse<java.util.stream.Stream<String>>> future =
+                http.sendAsync(request, HttpResponse.BodyHandlers.ofLines());
+        if (options.cancel() != null) {
+            // wire-level cancellation (pi passes the signal to fetch)
+            options.cancel().onAbort(() -> future.cancel(true));
+        }
+        future.thenAccept(response -> {
                     if (response.statusCode() != 200) {
                         String details = response.body().collect(Collectors.joining());
                         fail(out, failure(model, response.statusCode(), details));
@@ -76,7 +83,10 @@ public final class AnthropicProvider implements StreamFn {
                     AnthropicStreamParser parser = new AnthropicStreamParser(model, out);
                     SseParser sse = new SseParser(parser::sseEvent);
                     try (var lines = response.body()) {
-                        lines.forEach(sse::processLine);
+                        pumpSse(lines.iterator(), sse::processLine, options.cancel());
+                    } catch (RequestAbortedException e) {
+                        fail(out, abortedFailure(model));
+                        return;
                     } catch (Exception e) {
                         fail(out, failure(model, "failed reading response stream: " + e.getMessage(),
                                 ErrorClassifier.classify(e)));
@@ -87,11 +97,40 @@ public final class AnthropicProvider implements StreamFn {
                 })
                 .exceptionally(ex -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    if (cause instanceof java.util.concurrent.CancellationException
+                            || (options.cancel() != null && options.cancel().isAborted())) {
+                        // pi maps a wire-level abort to aborted, not error
+                        fail(out, abortedFailure(model));
+                        return null;
+                    }
                     fail(out, failure(model, "request failed: " + cause.getMessage(),
                             ErrorClassifier.classify(cause)));
                     return null;
                 });
         return out;
+    }
+
+    /**
+     * Feeds body lines to the SSE parser, observing cancellation between lines: an
+     * in-flight generation must end ABORTED promptly instead of surfacing only when
+     * the model finishes (pi: {@code iterateSseMessages} checks the signal on every
+     * read and throws "Request was aborted").
+     */
+    static void pumpSse(Iterator<String> lines, java.util.function.Consumer<String> processLine,
+                        dev.jpi.util.CancellationToken cancel) {
+        while (lines.hasNext()) {
+            if (cancel != null && cancel.isAborted()) {
+                throw new RequestAbortedException();
+            }
+            processLine.accept(lines.next());
+        }
+    }
+
+    /** An aborted request is data: stopReason ABORTED, never a thrown error. */
+    static AssistantMessage abortedFailure(Model model) {
+        return AssistantMessage.pending(model)
+                .withStopReason(StopReason.ABORTED)
+                .withErrorMessage("Request was aborted");
     }
 
     private static void fail(AssistantMessageEventStream out, AssistantMessage message) {

@@ -19,10 +19,13 @@ import dev.jpi.ai.UserMessage;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -200,6 +203,40 @@ class OpenAIProviderTest {
         assertEquals(StopReason.ERROR, failed.stopReason());
         assertEquals(ErrorKind.NETWORK, failed.diagnostics());
         assertEquals("request failed: timed out", failed.errorMessage());
+    }
+
+    @Test
+    void pumpObservesCancellationBetweenLines() {
+        dev.jpi.util.CancellationToken cancel = new dev.jpi.util.CancellationToken();
+        List<String> lines = List.of("data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}", "",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"b\"}}]}", "");
+        AtomicInteger nextCalls = new AtomicInteger();
+        AtomicInteger processed = new AtomicInteger();
+        Iterator<String> raw = lines.iterator();
+        Iterator<String> aborting = new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return raw.hasNext();
+            }
+
+            @Override
+            public String next() {
+                if (nextCalls.getAndIncrement() >= 1) {
+                    cancel.abort(); // fires between lines, as an abort mid-generation would
+                }
+                return raw.next();
+            }
+        };
+        assertThrows(RequestAbortedException.class,
+                () -> OpenAICompletionsProvider.pumpSse(aborting, l -> processed.incrementAndGet(), cancel));
+        assertTrue(processed.get() >= 1, "lines before the abort were processed");
+    }
+
+    @Test
+    void abortedRequestBecomesAbortedDataNotError() {
+        AssistantMessage aborted = OpenAICompletionsProvider.abortedFailure(MODEL);
+        assertEquals(StopReason.ABORTED, aborted.stopReason());
+        assertEquals("Request was aborted", aborted.errorMessage());
     }
 
     static AssistantMessageEventStream feed(Model model, String sse) {
