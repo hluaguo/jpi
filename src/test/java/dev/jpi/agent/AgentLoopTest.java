@@ -423,11 +423,53 @@ class AgentLoopTest {
                 events::add);
 
         assertTrue(executed.isEmpty(), "execute must never run when blocked");
-        assertFalse(labels(events).contains("tool_execution_start"));
+        // pi: every tool result carries the same event shape — the start fires before
+        // preparation, so blocked calls still bracket their error result with start/end
+        assertEquals(List.of("tool_execution_start", "tool_execution_end"),
+                labels(events).stream().filter(l -> l.startsWith("tool_execution")).toList());
         ToolResultMessage toolResult = (ToolResultMessage) result.messages().get(2);
         assertTrue(toolResult.isError());
         assertEquals("Error: permission denied", ((Content.Text) toolResult.content().get(0)).text());
         assertEquals(StopReason.STOP, result.stopReason());
+    }
+
+    @Test
+    void prepareFailuresInAParallelBatchCarryStartAndEndEvents() {
+        ScriptedProvider provider = ScriptedProvider.builder()
+                .toolCalls(List.of(
+                        new Content.ToolCall("call_1", "missing", Map.of()),
+                        new Content.ToolCall("call_2", "known", Map.of())))
+                .text("done")
+                .build();
+        AgentLoop loop = new AgentLoop(provider, AgentLoopConfig.builder()
+                .toolExecution(AgentLoopConfig.ToolExecution.PARALLEL)
+                .build());
+
+        List<AgentEvent> events = new ArrayList<>();
+        AgentLoop.LoopResult result = loop.run(
+                MODEL,
+                new AgentContext(null, List.of(), List.of(tool("known", args -> AgentToolResult.text("ran")))),
+                List.of(UserMessage.of("go")),
+                events::add);
+
+        // starts in source order, one per call, before any execution begins
+        List<String> startIds = events.stream()
+                .filter(AgentEvent.ToolExecutionStart.class::isInstance)
+                .map(e -> ((AgentEvent.ToolExecutionStart) e).toolCallId())
+                .toList();
+        assertEquals(List.of("call_1", "call_2"), startIds);
+
+        // the not-found call ends immediately with its error result, like any other
+        long endIds = events.stream()
+                .filter(AgentEvent.ToolExecutionEnd.class::isInstance)
+                .map(e -> ((AgentEvent.ToolExecutionEnd) e).toolCallId())
+                .distinct()
+                .count();
+        assertEquals(2, endIds, "every call in the batch emits a matching end");
+
+        ToolResultMessage missing = (ToolResultMessage) result.messages().get(2);
+        assertTrue(missing.isError());
+        assertEquals("Error: Tool not found: missing", ((Content.Text) missing.content().get(0)).text());
     }
 
     @Test

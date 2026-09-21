@@ -96,77 +96,77 @@ public class AgentLoop {
                     messages = new ArrayList<>(plan.context().messages());
                 }
                 emit.accept(new AgentEvent.TurnStart(turnIndex++));
-            for (Message message : pending) {
-                emit.accept(new AgentEvent.MessageStart(message));
-                messages.add(message);
-                newMessages.add(message);
-                emit.accept(new AgentEvent.MessageEnd(message));
-            }
-            pending = List.of();
-
-            Context llmContext = new Context(currentSystemPrompt,
-                    config.transformContext().transform(currentModel, messages),
-                    currentTools.stream()
-                            .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))
-                            .toList());
-            AssistantMessage assistant = streamAssistantResponse(currentModel, llmContext, messages, newMessages, signal, emit);
-            stopReason = assistant.stopReason();
-
-            List<ToolResultMessage> turnToolResults = List.of();
-            if (assistant.stopReason() == StopReason.ERROR || assistant.stopReason() == StopReason.ABORTED) {
-                emit.accept(new AgentEvent.TurnEnd(assistant, turnToolResults));
-                emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
-                return new LoopResult(List.copyOf(newMessages), assistant.stopReason());
-            }
-
-            hasMoreToolCalls = false;
-            List<Content.ToolCall> toolCalls = assistant.content().stream()
-                    .filter(Content.ToolCall.class::isInstance)
-                    .map(Content.ToolCall.class::cast)
-                    .toList();
-            if (!toolCalls.isEmpty()) {
-                List<ExecResult> results;
-                if (assistant.stopReason() == StopReason.LENGTH) {
-                    // the calls never run, but consumers see the same start/end shape as
-                    // any other tool result in the transcript (pi: failToolCallsFromTruncatedMessage)
-                    results = new ArrayList<>();
-                    for (Content.ToolCall tc : toolCalls) {
-                        emit.accept(new AgentEvent.ToolExecutionStart(tc.id(), tc.name(), tc.arguments()));
-                        ExecResult error = new ExecResult(errorResult(tc,
-                                "tool call arguments may be truncated (stop_reason: length)"), false);
-                        emit.accept(new AgentEvent.ToolExecutionEnd(tc.id(), tc.name(), error.message()));
-                        results.add(error);
-                    }
-                } else {
-                    results = executeToolCalls(currentTools, toolCalls, assistant,
-                            new AgentContext(currentSystemPrompt, messages, currentTools), signal, emit);
+                for (Message message : pending) {
+                    emit.accept(new AgentEvent.MessageStart(message));
+                    messages.add(message);
+                    newMessages.add(message);
+                    emit.accept(new AgentEvent.MessageEnd(message));
                 }
-                turnToolResults = results.stream().map(ExecResult::message).toList();
-                hasMoreToolCalls = signal.isAborted()
-                        ? false
-                        : !results.stream().allMatch(ExecResult::terminate);
-                for (ToolResultMessage toolResult : turnToolResults) {
-                    emit.accept(new AgentEvent.MessageStart(toolResult));
-                    messages.add(toolResult);
-                    newMessages.add(toolResult);
-                    emit.accept(new AgentEvent.MessageEnd(toolResult));
-                }
-            }
+                pending = List.of();
 
-            lastTurn = new AgentLoopConfig.TurnResult(assistant, turnToolResults);
-
-            emit.accept(new AgentEvent.TurnEnd(assistant, turnToolResults));
-            if (signal.isAborted()) {
-                emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
-                return new LoopResult(List.copyOf(newMessages), StopReason.ABORTED);
-            }
-            if (config.shouldStopAfterTurn().shouldStopAfterTurn(assistant, turnToolResults, turnIndex - 1)) {
+                Context llmContext = new Context(currentSystemPrompt,
+                        config.transformContext().transform(currentModel, messages),
+                        currentTools.stream()
+                                .map(t -> new dev.jpi.ai.Tool(t.name(), t.description(), t.parameters()))
+                                .toList());
+                AssistantMessage assistant = streamAssistantResponse(currentModel, llmContext, messages, newMessages, signal, emit);
                 stopReason = assistant.stopReason();
-                emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
-                return new LoopResult(List.copyOf(newMessages), stopReason);
-            }
 
-            pending = new ArrayList<>(config.getSteeringMessages().get());
+                List<ToolResultMessage> turnToolResults = List.of();
+                if (assistant.stopReason() == StopReason.ERROR || assistant.stopReason() == StopReason.ABORTED) {
+                    emit.accept(new AgentEvent.TurnEnd(assistant, turnToolResults));
+                    emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
+                    return new LoopResult(List.copyOf(newMessages), assistant.stopReason());
+                }
+
+                hasMoreToolCalls = false;
+                List<Content.ToolCall> toolCalls = assistant.content().stream()
+                        .filter(Content.ToolCall.class::isInstance)
+                        .map(Content.ToolCall.class::cast)
+                        .toList();
+                if (!toolCalls.isEmpty()) {
+                    List<ExecResult> results;
+                    if (assistant.stopReason() == StopReason.LENGTH) {
+                        // the calls never run, but consumers see the same start/end shape as
+                        // any other tool result in the transcript (pi: failToolCallsFromTruncatedMessage)
+                        results = new ArrayList<>();
+                        for (Content.ToolCall tc : toolCalls) {
+                            emit.accept(new AgentEvent.ToolExecutionStart(tc.id(), tc.name(), tc.arguments()));
+                            ExecResult error = new ExecResult(errorResult(tc,
+                                    "tool call arguments may be truncated (stop_reason: length)"), false);
+                            emit.accept(new AgentEvent.ToolExecutionEnd(tc.id(), tc.name(), error.message()));
+                            results.add(error);
+                        }
+                    } else {
+                        results = executeToolCalls(currentTools, toolCalls, assistant,
+                                new AgentContext(currentSystemPrompt, messages, currentTools), signal, emit);
+                    }
+                    turnToolResults = results.stream().map(ExecResult::message).toList();
+                    hasMoreToolCalls = signal.isAborted()
+                            ? false
+                            : !results.stream().allMatch(ExecResult::terminate);
+                    for (ToolResultMessage toolResult : turnToolResults) {
+                        emit.accept(new AgentEvent.MessageStart(toolResult));
+                        messages.add(toolResult);
+                        newMessages.add(toolResult);
+                        emit.accept(new AgentEvent.MessageEnd(toolResult));
+                    }
+                }
+
+                lastTurn = new AgentLoopConfig.TurnResult(assistant, turnToolResults);
+
+                emit.accept(new AgentEvent.TurnEnd(assistant, turnToolResults));
+                if (signal.isAborted()) {
+                    emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
+                    return new LoopResult(List.copyOf(newMessages), StopReason.ABORTED);
+                }
+                if (config.shouldStopAfterTurn().shouldStopAfterTurn(assistant, turnToolResults, turnIndex - 1)) {
+                    stopReason = assistant.stopReason();
+                    emit.accept(new AgentEvent.End(List.copyOf(newMessages)));
+                    return new LoopResult(List.copyOf(newMessages), stopReason);
+                }
+
+                pending = new ArrayList<>(config.getSteeringMessages().get());
             }
 
             // the loop would stop — follow-ups keep it alive
@@ -199,89 +199,62 @@ public class AgentLoop {
                                                         CancellationToken signal, Consumer<AgentEvent> emit) {
         List<ExecResult> results = new ArrayList<>();
         for (Content.ToolCall toolCall : toolCalls) {
-            if (signal.isAborted()) {
-                results.add(new ExecResult(errorResult(toolCall, "Operation aborted"), false));
-                continue;
-            }
-            results.add(executeOneToolCall(tools, toolCall, assistant, callContext, signal, emit));
+            // pi: the start fires before preparation — every result, including errors,
+            // brackets with start/end so event-only consumers can reconstruct the transcript
+            emit.accept(new AgentEvent.ToolExecutionStart(toolCall.id(), toolCall.name(), toolCall.arguments()));
+            Prepared prepared = prepareToolCall(tools, toolCall, assistant, callContext, signal);
+            ExecResult result = prepared.executable()
+                    ? executeResolved(prepared, assistant, callContext, signal, emit)
+                    : prepared.immediate();
+            emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), result.message()));
+            results.add(result);
         }
         return results;
     }
 
-    /** A per-call preparation outcome for parallel execution. */
-    private record Prepared(Content.ToolCall call, AgentTool tool, ExecResult error) {
+    /** A per-call preparation outcome: an immediate error result, or a resolved tool ready to execute. */
+    private record Prepared(Content.ToolCall call, AgentTool tool, ExecResult immediate) {
         boolean executable() {
-            return error == null;
+            return immediate == null;
         }
     }
 
     /**
-     * Prepared sequentially so permission gates stay ordered; executed concurrently.
-     * End events follow completion order (what a UI wants) while the returned results
-     * keep source order (what the transcript wants).
+     * pi: prepareToolCall — resolve the tool, validate arguments, apply the permission
+     * gate, then check abort; every failure becomes an immediate error result. Always
+     * runs sequentially (both execution modes) so the gates stay ordered.
      */
-    private List<ExecResult> executeToolCallsParallel(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
-                                                      AssistantMessage assistant, AgentContext callContext,
-                                                      CancellationToken signal, Consumer<AgentEvent> emit) {
-        List<Prepared> prepared = new ArrayList<>();
-        for (Content.ToolCall toolCall : toolCalls) {
-            if (signal.isAborted()) {
-                prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, "Operation aborted"), false)));
-                continue;
-            }
-            AgentTool tool = tools.stream()
-                    .filter(t -> t.name().equals(toolCall.name()))
-                    .findFirst().orElse(null);
-            if (tool == null) {
-                prepared.add(new Prepared(toolCall, null,
-                        new ExecResult(errorResult(toolCall, "Tool not found: " + toolCall.name()), false)));
-                continue;
-            }
-            String validationError = validate(tool, toolCall);
-            if (validationError != null) {
-                prepared.add(new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, validationError), false)));
-                continue;
-            }
-            AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(
-                    new AgentLoopConfig.BeforeToolCallContext(tool, toolCall, toolCall.arguments(), assistant, callContext));
-            if (decision.block()) {
-                prepared.add(new Prepared(toolCall, null,
-                        new ExecResult(errorResult(toolCall, decision.reason()), decision.terminate())));
-                continue;
-            }
-            prepared.add(new Prepared(toolCall, tool, null));
+    private Prepared prepareToolCall(List<AgentTool> tools, Content.ToolCall toolCall,
+                                     AssistantMessage assistant, AgentContext callContext,
+                                     CancellationToken signal) {
+        AgentTool tool = tools.stream()
+                .filter(t -> t.name().equals(toolCall.name()))
+                .findFirst().orElse(null);
+        if (tool == null) {
+            return new Prepared(toolCall, null,
+                    new ExecResult(errorResult(toolCall, "Tool not found: " + toolCall.name()), false));
         }
-
-        // start events in source order, before any execution begins
-        for (Prepared p : prepared) {
-            if (p.executable()) {
-                emit.accept(new AgentEvent.ToolExecutionStart(p.call().id(), p.call().name(), p.call().arguments()));
-            }
+        String validationError = validate(tool, toolCall);
+        if (validationError != null) {
+            return new Prepared(toolCall, null, new ExecResult(errorResult(toolCall, validationError), false));
         }
-
-        Object emitLock = new Object();
-        Consumer<AgentEvent> safeEmit = event -> {
-            synchronized (emitLock) {
-                emit.accept(event);
-            }
-        };
-        List<CompletableFuture<ExecResult>> futures = new ArrayList<>();
-        for (Prepared p : prepared) {
-            if (!p.executable()) {
-                futures.add(CompletableFuture.completedFuture(p.error()));
-                continue;
-            }
-            futures.add(CompletableFuture.supplyAsync(() -> runPrepared(p, assistant, callContext, signal, safeEmit)));
+        AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(
+                new AgentLoopConfig.BeforeToolCallContext(tool, toolCall, toolCall.arguments(), assistant, callContext));
+        if (decision.block()) {
+            return new Prepared(toolCall, null,
+                    new ExecResult(errorResult(toolCall, decision.reason()), decision.terminate()));
         }
-        List<ExecResult> results = new ArrayList<>();
-        for (CompletableFuture<ExecResult> future : futures) {
-            results.add(future.join());
+        if (signal.isAborted()) {
+            return new Prepared(toolCall, null,
+                    new ExecResult(errorResult(toolCall, "Operation aborted"), false));
         }
-        return results;
+        return new Prepared(toolCall, tool, null);
     }
 
-    private ExecResult runPrepared(Prepared prepared, AssistantMessage assistant, AgentContext callContext,
-                                   CancellationToken signal, Consumer<AgentEvent> emit) {
+    /** Runs a prepared call: the tool, then the afterToolCall hook. No lifecycle events — the driver emits. */
+    private ExecResult executeResolved(Prepared prepared, AssistantMessage assistant,
+                                       AgentContext callContext, CancellationToken signal,
+                                       Consumer<AgentEvent> emit) {
         Content.ToolCall toolCall = prepared.call();
         AgentToolResult result;
         try {
@@ -296,48 +269,53 @@ public class AgentLoop {
                 System.currentTimeMillis());
         toolResult = config.afterToolCall().afterToolCall(new AgentLoopConfig.AfterToolCallContext(
                 prepared.tool(), toolCall, toolCall.arguments(), assistant, callContext, toolResult));
-        emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), toolResult));
         return new ExecResult(toolResult, result.terminate());
     }
 
-    private ExecResult executeOneToolCall(List<AgentTool> tools, Content.ToolCall toolCall,
-                                          AssistantMessage assistant, AgentContext callContext,
-                                          CancellationToken signal, Consumer<AgentEvent> emit) {
-        AgentTool tool = tools.stream()
-                .filter(t -> t.name().equals(toolCall.name()))
-                .findFirst().orElse(null);
-        if (tool == null) {
-            return new ExecResult(errorResult(toolCall, "Tool not found: " + toolCall.name()), false);
+    /**
+     * Prepared sequentially so permission gates stay ordered; executed concurrently.
+     * End events follow completion order (what a UI wants) while the returned results
+     * keep source order (what the transcript wants).
+     */
+    private List<ExecResult> executeToolCallsParallel(List<AgentTool> tools, List<Content.ToolCall> toolCalls,
+                                                      AssistantMessage assistant, AgentContext callContext,
+                                                      CancellationToken signal, Consumer<AgentEvent> emit) {
+        // pi: starts interleave with preparation, in source order, all before any
+        // execution begins; immediate errors emit their end right here while executed
+        // calls emit from their workers (completion order)
+        List<Prepared> prepared = new ArrayList<>();
+        for (Content.ToolCall toolCall : toolCalls) {
+            emit.accept(new AgentEvent.ToolExecutionStart(toolCall.id(), toolCall.name(), toolCall.arguments()));
+            Prepared p = prepareToolCall(tools, toolCall, assistant, callContext, signal);
+            prepared.add(p);
+            if (!p.executable()) {
+                emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), p.immediate().message()));
+            }
         }
 
-        String validationError = validate(tool, toolCall);
-        if (validationError != null) {
-            return new ExecResult(errorResult(toolCall, validationError), false);
+        Object emitLock = new Object();
+        Consumer<AgentEvent> safeEmit = event -> {
+            synchronized (emitLock) {
+                emit.accept(event);
+            }
+        };
+        List<CompletableFuture<ExecResult>> futures = new ArrayList<>();
+        for (Prepared p : prepared) {
+            if (!p.executable()) {
+                futures.add(CompletableFuture.completedFuture(p.immediate()));
+                continue;
+            }
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                ExecResult result = executeResolved(p, assistant, callContext, signal, safeEmit);
+                safeEmit.accept(new AgentEvent.ToolExecutionEnd(p.call().id(), p.call().name(), result.message()));
+                return result;
+            }));
         }
-
-        AgentLoopConfig.BeforeToolCallResult decision = config.beforeToolCall().beforeToolCall(
-                new AgentLoopConfig.BeforeToolCallContext(tool, toolCall, toolCall.arguments(), assistant, callContext));
-        if (decision.block()) {
-            return new ExecResult(errorResult(toolCall, decision.reason()), decision.terminate());
+        List<ExecResult> results = new ArrayList<>();
+        for (CompletableFuture<ExecResult> future : futures) {
+            results.add(future.join());
         }
-
-        emit.accept(new AgentEvent.ToolExecutionStart(toolCall.id(), toolCall.name(), toolCall.arguments()));
-        AgentToolResult result;
-        try {
-            result = tool.execute(toolCall.id(), toolCall.arguments(), signal,
-                    partial -> emit.accept(new AgentEvent.ToolExecutionUpdate(toolCall.id(), partial)));
-        } catch (Exception e) {
-            result = null;
-            String errorMessage = e.getMessage() == null ? e.toString() : e.getMessage();
-            return new ExecResult(errorResult(toolCall, errorMessage), false);
-        }
-        ToolResultMessage toolResult = new ToolResultMessage(
-                toolCall.id(), toolCall.name(), result.content(), result.details(), false,
-                System.currentTimeMillis());
-        toolResult = config.afterToolCall().afterToolCall(new AgentLoopConfig.AfterToolCallContext(
-                tool, toolCall, toolCall.arguments(), assistant, callContext, toolResult));
-        emit.accept(new AgentEvent.ToolExecutionEnd(toolCall.id(), toolCall.name(), toolResult));
-        return new ExecResult(toolResult, result.terminate());
+        return results;
     }
 
     private static ToolResultMessage errorResult(Content.ToolCall toolCall, String errorMessage) {
