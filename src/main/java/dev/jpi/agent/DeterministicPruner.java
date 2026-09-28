@@ -8,18 +8,22 @@ import dev.jpi.ai.Content;
 import dev.jpi.ai.Message;
 import dev.jpi.ai.Model;
 import dev.jpi.ai.ToolResultMessage;
+import dev.jpi.ai.TokenEstimator;
 
 /**
- * The deterministic context guard: when the last provider-reported usage crosses the
+ * The deterministic context guard: when the estimated current context crosses the
  * threshold share of the model's context window, old tool results are stubbed in
  * place — oversize ones first, all of them as fallback. Recent messages are never
  * touched, and results are stubbed rather than dropped so an assistant toolCall can
  * never lose its toolResult (the loop's continue path and providers reject orphans).
  *
- * <p><em>Why the trigger is reported usage, not an estimate:</em> token counts are
- * the provider's truth; jpi does not count characters. The consequence is that the
- * guard acts on the last known context size — the standard pre-flight signal — and
- * converges over turns if the first targeted pass does not fully fix an overflow.
+ * <p><em>Why an anchored estimate and not bare reported usage:</em> the last
+ * response's {@link dev.jpi.ai.Usage} is the provider's truth, but it is one turn
+ * stale — it can't see messages queued after it, and before the first response
+ * there is no usage at all. {@link TokenEstimator#estimateContextTokens} anchors
+ * on the last applicable usage and estimates only what trails it, so the guard
+ * measures the context it is about to send. It converges over turns if the first
+ * targeted pass does not fully fix an overflow.
  */
 public final class DeterministicPruner implements AgentLoopConfig.ContextTransformer {
 
@@ -42,7 +46,7 @@ public final class DeterministicPruner implements AgentLoopConfig.ContextTransfo
 
     @Override
     public List<Message> transform(Model model, List<Message> messages) {
-        long contextTokens = latestReportedUsage(messages);
+        long contextTokens = TokenEstimator.estimateContextTokens(messages).tokens();
         if (contextTokens <= threshold * model.contextWindow()) {
             return messages;
         }
@@ -53,16 +57,6 @@ public final class DeterministicPruner implements AgentLoopConfig.ContextTransfo
             pruned = stubToolResults(messages, protectedFrom, oversizeToolResultChars, false);
         }
         return pruned != null ? pruned : messages;
-    }
-
-    /** The total tokens of the most recent assistant response; 0 before the first response. */
-    private static long latestReportedUsage(List<Message> messages) {
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i) instanceof AssistantMessage assistant) {
-                return assistant.usage().totalTokens();
-            }
-        }
-        return 0;
     }
 
     /**

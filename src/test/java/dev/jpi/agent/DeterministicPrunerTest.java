@@ -1,6 +1,7 @@
 package dev.jpi.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,8 +25,8 @@ import dev.jpi.ai.UserMessage;
 import dev.jpi.ai.providers.ScriptedProvider;
 
 /**
- * Pruning invariants: the trigger is the last provider-reported usage (never a
- * local estimate), oversize tool outputs go first, the recent tail is untouchable,
+ * Pruning invariants: the trigger is the anchored estimate (reported usage when
+ * applicable, heuristics before the first response or after an aborted one), oversize tool outputs go first, the recent tail is untouchable,
  * and an assistant toolCall is never separated from its toolResult — stubbed in
  * place, not dropped.
  */
@@ -75,7 +76,7 @@ class DeterministicPrunerTest {
     void underBudgetOrWithoutProviderUsageReturnsMessagesUnchanged() {
         List<Message> messages = conversation();
 
-        // no usage reported yet → the guard has no signal and keeps hands off
+        // no applicable usage yet → everything is estimated, and tiny stays tiny
         List<Message> noUsage = List.of(
                 new UserMessage(List.of(new Content.Text("go")), TS),
                 new AssistantMessage("a", "p", "m", List.of(new Content.Text("early")),
@@ -87,6 +88,32 @@ class DeterministicPrunerTest {
                 new AssistantMessage("a", "p", "m", List.of(new Content.Text("hi")),
                         usage(100), StopReason.STOP, null, null, TS));
         assertSame(small, PRUNER.transform(MODEL, small));
+    }
+
+    @Test
+    void prunesOnEstimateBeforeAnyApplicableUsageExists() {
+        // a continued transcript: the only reported usage is from an aborted
+        // response (never an anchor), so the guard must act on the estimate —
+        // the 5000-char tool result alone (~1250 tokens) overflows the 500 budget
+        List<Message> messages = new ArrayList<>(List.of(
+                new UserMessage(List.of(new Content.Text("go")), TS),
+                new AssistantMessage("a", "p", "m",
+                        List.of(new Content.ToolCall("c1", "echo", Map.of())),
+                        usage(600), StopReason.ABORTED, null, null, TS),
+                new ToolResultMessage("c1", "echo",
+                        List.of(new Content.Text("x".repeat(5000))), Map.of(), false, TS),
+                new UserMessage(List.of(new Content.Text("continue")), TS),
+                new AssistantMessage("a", "p", "m", List.of(new Content.Text("?")),
+                        Usage.ZERO, StopReason.STOP, null, null, TS),
+                new UserMessage(List.of(new Content.Text("again")), TS)));
+
+        List<Message> pruned = PRUNER.transform(MODEL, messages);
+
+        assertNotSame(messages, pruned);
+        assertPairsIntact(pruned);
+        ToolResultMessage stubbed = (ToolResultMessage) pruned.get(2);
+        assertTrue(((Content.Text) stubbed.content().get(0)).text()
+                .startsWith("[pruned tool result: "), "oversize result is stubbed");
     }
 
     @Test
