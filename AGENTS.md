@@ -6,7 +6,7 @@ Instructions for coding agents (and humans) working in this repository.
 
 **jpi** — a minimal Java 21 port of the pi coding agent core (`pi-agent-core` +
 `pi-ai`, MIT, Mario Zechner / earendil-works): the agent loop, the streaming LLM
-boundary, wire adapters, a starter toolset (`bash`/`read`/`write`), the golden-pinned
+boundary, wire adapters, a starter toolset (`bash`/`read`/`write`/`edit`), the golden-pinned
 JSON wire contract, and JSONL session recording/replay — a small dependency-light
 OSS library.
 

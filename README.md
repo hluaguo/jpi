@@ -17,7 +17,7 @@ dependency-light library for building coding agents on the JVM.
   compaction point.
 
 Dependencies: Jackson + JUnit 5 only. HTTP via `java.net.http` with a hand-rolled SSE
-parser. The test suite (150 tests) is fully offline and deterministic.
+parser. The test suite (171 tests) is fully offline and deterministic.
 
 ## Getting it
 
@@ -93,7 +93,7 @@ prefix caching.
 | `dev.jpi.ai.providers` | Anthropic Messages + OpenAI-compatible adapters, `ScriptedProvider`, SSE |
 | `dev.jpi.json` | golden-pinned JSON wire contract for messages and events |
 | `dev.jpi.session` | JSONL session recorder/reader/replayer |
-| `dev.jpi.tools` | `bash`, `read`, `write` |
+| `dev.jpi.tools` | `bash`, `read`, `write`, `edit` (+ the pure `EditDiff` matching core) |
 | `dev.jpi.util` | `CancellationToken` |
 
 ## The wire contract (`dev.jpi.json`)
@@ -121,6 +121,11 @@ payload an SSE/RPC bridge streams.
   per call; `DeterministicPruner` stubs old tool results (oversize first) when
   usage crosses a share of the context window, keeping every tool call paired
   with its result.
+- **`edit` tool** — exact-text replacement with pi's exact-then-fuzzy matching
+  (trailing-whitespace, smart-quote, Unicode-dash normalization), CRLF and BOM
+  preservation, duplicate/overlap/not-found errors with pi's wording, and
+  display + unified-patch diffs in the result details. The line diff is a
+  hand-rolled Myers — jpi carries no third-party diff dependency.
 
 ## Demo
 
@@ -144,16 +149,12 @@ minor versions.
 
 Ported so far: agent loop + hooks, streaming protocol, Anthropic/OpenAI adapters,
 retry with error classification, overflow guard, run stats & costs, JSON wire
-contract, session recording/replay, `bash`/`read`/`write` tools, transcript text
-rendering (`Transcripts.contentText`/`render`). Next up, in pi source order:
+contract, session recording/replay, `bash`/`read`/`write`/`edit` tools, transcript
+text rendering (`Transcripts.contentText`/`render`). Next up, in pi source order:
 
-1. **`edit` tool** (pi `harness/tools/edit.ts` + `edit-diff.ts`) — exact-then-fuzzy
-   text matching (trailing-whitespace, smart-quote, Unicode-dash normalization),
-   line-ending preservation, unified-patch and display diffs. The missing core
-   coding tool.
-2. **Token estimation** (pi `pi-ai/utils/estimate`) — heuristic per-message and
+1. **Token estimation** (pi `pi-ai/utils/estimate`) — heuristic per-message and
    trailing-token estimates, so pruning can act before provider usage arrives.
-3. **`search` tool** (pi `harness/tools/search`) — pure-Java grep over the tree,
+2. **`search` tool** (pi `harness/tools/search`) — pure-Java grep over the tree,
    ignoring `target/`/`.git/`/`node_modules/`, capped results.
 
 ## License
