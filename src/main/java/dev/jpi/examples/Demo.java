@@ -9,6 +9,7 @@ import java.util.Map;
 import dev.jpi.agent.Agent;
 import dev.jpi.agent.AgentEvent;
 import dev.jpi.ai.Model;
+import dev.jpi.ai.Transcripts;
 import dev.jpi.ai.providers.AnthropicProvider;
 import dev.jpi.ai.providers.ScriptedProvider;
 import dev.jpi.tools.ReadTool;
@@ -71,15 +72,11 @@ public final class Demo {
                 System.out.println("[tool " + start.toolName() + " args " + start.args() + "]");
             } else if (event instanceof AgentEvent.ToolExecutionEnd end) {
                 System.out.println("[tool " + end.toolName()
-                        + " -> " + ((dev.jpi.ai.Content.Text) end.result().content().get(0)).text() + "]");
+                        + " -> " + Transcripts.contentText(end.result().content()));
             } else if (event instanceof AgentEvent.MessageEnd end
                     && end.message() instanceof dev.jpi.ai.AssistantMessage assistant
                     && assistant.stopReason() != dev.jpi.ai.StopReason.PENDING) {
-                assistant.content().forEach(block -> {
-                    if (block instanceof dev.jpi.ai.Content.Text text) {
-                        System.out.println("[assistant] " + text.text());
-                    }
-                });
+                System.out.println(Transcripts.render(assistant));
             }
         });
 
