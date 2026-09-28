@@ -17,7 +17,7 @@ dependency-light library for building coding agents on the JVM.
   compaction point.
 
 Dependencies: Jackson + JUnit 5 only. HTTP via `java.net.http` with a hand-rolled SSE
-parser. The test suite (140+ tests) is fully offline and deterministic.
+parser. The test suite (150 tests) is fully offline and deterministic.
 
 ## Getting it
 
@@ -89,7 +89,7 @@ prefix caching.
 | Package | What lives there |
 |---|---|
 | `dev.jpi.agent` | `Agent`, the pure `AgentLoop`, events, tools, hooks, pruning, run stats |
-| `dev.jpi.ai` | message model, streaming protocol, retry, cost, error classification |
+| `dev.jpi.ai` | message model, streaming protocol, retry, cost, error classification, transcript rendering |
 | `dev.jpi.ai.providers` | Anthropic Messages + OpenAI-compatible adapters, `ScriptedProvider`, SSE |
 | `dev.jpi.json` | golden-pinned JSON wire contract for messages and events |
 | `dev.jpi.session` | JSONL session recorder/reader/replayer |
@@ -125,8 +125,9 @@ payload an SSE/RPC bridge streams.
 ## Demo
 
 ```sh
-mvn -q compile exec:java        # scripted, offline; add --live with ANTHROPIC_API_KEY for the real API
-mvn test                        # full offline suite
+mvn -q compile exec:java                          # scripted, offline
+mvn -q compile exec:java -Dexec.args=--live       # real Anthropic API; needs ANTHROPIC_API_KEY
+mvn test                                          # full offline suite
 ```
 
 ## Development
@@ -136,10 +137,24 @@ bytes and an injectable clock; no network, ever. [`AGENTS.md`](AGENTS.md) docume
 the working agreement (commit format, duplication and documentation standards) for
 humans and coding agents alike.
 
-## Status
+## Status & roadmap
 
 v0.2.0 — the API surface is still evolving; expect small breaking changes between
 minor versions.
+
+Ported so far: agent loop + hooks, streaming protocol, Anthropic/OpenAI adapters,
+retry with error classification, overflow guard, run stats & costs, JSON wire
+contract, session recording/replay, `bash`/`read`/`write` tools, transcript text
+rendering (`Transcripts.contentText`/`render`). Next up, in pi source order:
+
+1. **`edit` tool** (pi `harness/tools/edit.ts` + `edit-diff.ts`) — exact-then-fuzzy
+   text matching (trailing-whitespace, smart-quote, Unicode-dash normalization),
+   line-ending preservation, unified-patch and display diffs. The missing core
+   coding tool.
+2. **Token estimation** (pi `pi-ai/utils/estimate`) — heuristic per-message and
+   trailing-token estimates, so pruning can act before provider usage arrives.
+3. **`search` tool** (pi `harness/tools/search`) — pure-Java grep over the tree,
+   ignoring `target/`/`.git/`/`node_modules/`, capped results.
 
 ## License
 

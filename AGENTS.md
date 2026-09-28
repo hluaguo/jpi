@@ -6,10 +6,13 @@ Instructions for coding agents (and humans) working in this repository.
 
 **jpi** — a minimal Java 21 port of the pi coding agent core (`pi-agent-core` +
 `pi-ai`, MIT, Mario Zechner / earendil-works): the agent loop, the streaming LLM
-boundary, and wire adapters, as a small dependency-light OSS library.
+boundary, wire adapters, a starter toolset (`bash`/`read`/`write`), the golden-pinned
+JSON wire contract, and JSONL session recording/replay — a small dependency-light
+OSS library.
 
-- Out of scope (don't add): TUI, session trees, compaction engine, extensions,
-  model catalogs, OAuth.
+- Out of scope (don't add): TUI, session *trees* (forking; linear JSONL recording
+  in `dev.jpi.session` is in scope), compaction engine, extensions, model catalogs,
+  OAuth.
 - Single Maven module, package root `dev.jpi`. Dependencies: **Jackson + JUnit 5
   only**; HTTP via `java.net.http`; hand-rolled SSE parser.
 - All tests offline & deterministic (`ScriptedProvider`; adapters tested against
