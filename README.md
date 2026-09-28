@@ -17,7 +17,7 @@ dependency-light library for building coding agents on the JVM.
   compaction point.
 
 Dependencies: Jackson + JUnit 5 only. HTTP via `java.net.http` with a hand-rolled SSE
-parser. The test suite (171 tests) is fully offline and deterministic.
+parser. The test suite (182 tests) is fully offline and deterministic.
 
 ## Getting it
 
@@ -89,7 +89,7 @@ prefix caching.
 | Package | What lives there |
 |---|---|
 | `dev.jpi.agent` | `Agent`, the pure `AgentLoop`, events, tools, hooks, pruning, run stats |
-| `dev.jpi.ai` | message model, streaming protocol, retry, cost, error classification, transcript rendering |
+| `dev.jpi.ai` | message model, streaming protocol, retry, cost, error classification, transcript rendering, token estimation |
 | `dev.jpi.ai.providers` | Anthropic Messages + OpenAI-compatible adapters, `ScriptedProvider`, SSE |
 | `dev.jpi.json` | golden-pinned JSON wire contract for messages and events |
 | `dev.jpi.session` | JSONL session recorder/reader/replayer |
@@ -118,9 +118,10 @@ payload an SSE/RPC bridge streams.
   transcript and can replay a recorded conversation through `ScriptedProvider`
   offline.
 - **Context guard** — `transformContext` rewrites the provider-bound message list
-  per call; `DeterministicPruner` stubs old tool results (oversize first) when
-  usage crosses a share of the context window, keeping every tool call paired
-  with its result.
+  per call; `DeterministicPruner` stubs old tool results (oversize first) when the
+  estimated current context — the last applicable `Usage` plus a heuristic for
+  what trails it, all-heuristic before the first response — crosses a share of
+  the context window, keeping every tool call paired with its result.
 - **`edit` tool** — exact-text replacement with pi's exact-then-fuzzy matching
   (trailing-whitespace, smart-quote, Unicode-dash normalization), CRLF and BOM
   preservation, duplicate/overlap/not-found errors with pi's wording, and
@@ -150,11 +151,10 @@ minor versions.
 Ported so far: agent loop + hooks, streaming protocol, Anthropic/OpenAI adapters,
 retry with error classification, overflow guard, run stats & costs, JSON wire
 contract, session recording/replay, `bash`/`read`/`write`/`edit` tools, transcript
-text rendering (`Transcripts.contentText`/`render`). Next up, in pi source order:
+text rendering, token estimation (`TokenEstimator`, wired into the pruner as the
+pre-flight trigger). Next up, in pi source order:
 
-1. **Token estimation** (pi `pi-ai/utils/estimate`) — heuristic per-message and
-   trailing-token estimates, so pruning can act before provider usage arrives.
-2. **`search` tool** (pi `harness/tools/search`) — pure-Java grep over the tree,
+1. **`search` tool** (pi `harness/tools/search`) — pure-Java grep over the tree,
    ignoring `target/`/`.git/`/`node_modules/`, capped results.
 
 ## License
