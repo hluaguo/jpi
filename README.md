@@ -33,7 +33,7 @@ cd jpi && mvn install
 <dependency>
   <groupId>dev.jpi</groupId>
   <artifactId>jpi</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -144,7 +144,7 @@ humans and coding agents alike.
 
 ## Status & roadmap
 
-v0.2.0 — the API surface is still evolving; expect small breaking changes between
+v0.3.0 — the API surface is still evolving; expect small breaking changes between
 minor versions.
 
 Ported so far: agent loop + hooks, streaming protocol, Anthropic/OpenAI adapters,
