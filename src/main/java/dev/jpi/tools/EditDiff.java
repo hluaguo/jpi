@@ -111,21 +111,11 @@ public final class EditDiff {
 
     /** Find {@code oldText} in {@code content}: exact match first, then a match in fuzzy-normalized space. */
     public static FuzzyMatchResult fuzzyFindText(String content, String oldText) {
-        return fuzzyFindText(content, oldText, null);
-    }
-
-    /*
-     * preNormalizedContent (when non-null) is content already passed through
-     * normalizeForFuzzyMatch — callers that normalized a base once for a whole
-     * edit batch skip the per-edit full pass. Normalization is idempotent, so
-     * this only removes redundant work, never changes the result.
-     */
-    static FuzzyMatchResult fuzzyFindText(String content, String oldText, String preNormalizedContent) {
         int exact = content.indexOf(oldText);
         if (exact >= 0) {
             return new FuzzyMatchResult(true, exact, oldText.length(), false, content);
         }
-        String normalizedContent = preNormalizedContent != null ? preNormalizedContent : normalizeForFuzzyMatch(content);
+        String normalizedContent = normalizeForFuzzyMatch(content);
         String normalizedOldText = normalizeForFuzzyMatch(oldText);
         int fuzzy = normalizedContent.indexOf(normalizedOldText);
         if (fuzzy >= 0) {
@@ -172,18 +162,54 @@ public final class EditDiff {
         String uniquenessBase = null;  // normalized space, computed at most once for the batch
         for (int i = 0; i < normalized.size(); i++) {
             Edit edit = normalized.get(i);
-            FuzzyMatchResult result = fuzzyFindText(replacementBase, edit.oldText(), replacementBase);
-            if (!result.found()) {
-                throw new IllegalArgumentException(notFoundMessage(edits, i, path));
+            /*
+             * Exact scan first, then (only on a miss) one scan of the normalized
+             * base that yields both the first fuzzy occurrence and the occurrence
+             * count — they were separate full-content passes before. An empty
+             * needle mirrors the old pair: indexOf finds it at 0, the count is 0.
+             */
+            String needle = normalizeForFuzzyMatch(edit.oldText());
+            int index;
+            int matchLength;
+            int occurrences;
+            int exact = replacementBase.indexOf(edit.oldText());
+            if (exact >= 0) {
+                index = exact;
+                matchLength = edit.oldText().length();
+                if (uniquenessBase == null) {
+                    uniquenessBase = anyNeedsFuzzy ? replacementBase : normalizeForFuzzyMatch(replacementBase);
+                }
+                occurrences = needle.isEmpty() ? 0 : countOccurrences(uniquenessBase, needle);
+            } else if (needle.isEmpty()) {
+                index = 0;
+                matchLength = 0;
+                occurrences = 0;
+            } else {
+                if (uniquenessBase == null) {
+                    uniquenessBase = anyNeedsFuzzy ? replacementBase : normalizeForFuzzyMatch(replacementBase);
+                }
+                int count = 0;
+                int first = -1;
+                int from = 0;
+                int hit;
+                while ((hit = uniquenessBase.indexOf(needle, from)) != -1) {
+                    if (first < 0) {
+                        first = hit;
+                    }
+                    count++;
+                    from = hit + needle.length();
+                }
+                if (first < 0) {
+                    throw new IllegalArgumentException(notFoundMessage(edits, i, path));
+                }
+                index = first;
+                matchLength = needle.length();
+                occurrences = count;
             }
-            if (uniquenessBase == null) {
-                uniquenessBase = anyNeedsFuzzy ? replacementBase : normalizeForFuzzyMatch(replacementBase);
-            }
-            int occurrences = countOccurrences(uniquenessBase, edit.oldText());
             if (occurrences > 1) {
                 throw new IllegalArgumentException(duplicateMessage(edits, i, path, occurrences));
             }
-            matches.add(new int[] {result.index(), result.matchLength(), i});
+            matches.add(new int[] {index, matchLength, i});
             newTexts.add(edit.newText());
         }
         matches.sort((x, y) -> Integer.compare(x[0], y[0]));
@@ -222,14 +248,14 @@ public final class EditDiff {
      */
     private static String applyReplacementsPreservingUnchangedLines(
             String originalContent, String baseContent, List<int[]> matches, List<String> newTexts) {
-        String[] originalLines = originalContent.split("\\n", -1);
-        String[] baseLines = baseContent.split("\\n", -1);
+        List<String> originalLines = splitOnNewlines(originalContent);
+        List<String> baseLines = splitOnNewlines(baseContent);
 
-        boolean[] touched = new boolean[baseLines.length];
+        boolean[] touched = new boolean[baseLines.size()];
         int offset = 0;
-        for (int i = 0; i < baseLines.length; i++) {
+        for (int i = 0; i < baseLines.size(); i++) {
             int lineStart = offset;
-            int lineEnd = offset + baseLines[i].length();
+            int lineEnd = offset + baseLines.get(i).length();
             for (int[] m : matches) {
                 if (m[0] < lineEnd && m[0] + m[1] > lineStart) {
                     touched[i] = true;
@@ -243,29 +269,37 @@ public final class EditDiff {
             int[] m = matches.get(i);
             applied.replace(m[0], m[0] + m[1], newTexts.get(m[2]));
         }
-        String[] rewrittenBase = applied.toString().split("\\n", -1);
+        List<String> rewrittenBase = splitOnNewlines(applied.toString());
 
         StringBuilder out = new StringBuilder(originalContent.length());
-        for (int i = 0; i < originalLines.length; i++) {
-            out.append(touched[i] ? rewrittenBase[i] : originalLines[i]);
-            if (i < originalLines.length - 1) {
+        for (int i = 0; i < originalLines.size(); i++) {
+            out.append(touched[i] ? rewrittenBase.get(i) : originalLines.get(i));
+            if (i < originalLines.size() - 1) {
                 out.append('\n');
             }
         }
         return out.toString();
     }
 
-    /* Counts needle occurrences in already-normalized content; only the needle needs normalizing. */
-    private static int countOccurrences(String normalizedContent, String oldText) {
-        String needle = normalizeForFuzzyMatch(oldText);
-        if (needle.isEmpty()) {
-            return 0;
+    /* split("\\n", -1) without the regex engine. */
+    private static List<String> splitOnNewlines(String content) {
+        List<String> out = new ArrayList<>();
+        int start = 0;
+        for (int i = content.indexOf('\n'); i >= 0; i = content.indexOf('\n', i + 1)) {
+            out.add(content.substring(start, i));
+            start = i + 1;
         }
+        out.add(content.substring(start));
+        return out;
+    }
+
+    /* Counts an already-normalized needle in already-normalized content. */
+    private static int countOccurrences(String normalizedContent, String normalizedNeedle) {
         int count = 0;
         int idx = 0;
-        while ((idx = normalizedContent.indexOf(needle, idx)) != -1) {
+        while ((idx = normalizedContent.indexOf(normalizedNeedle, idx)) != -1) {
             count++;
-            idx += needle.length();
+            idx += normalizedNeedle.length();
         }
         return count;
     }
