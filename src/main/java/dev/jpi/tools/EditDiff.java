@@ -511,7 +511,6 @@ public final class EditDiff {
                     }
                     v[max + 1 + k] = x;
                     if (x >= n && y >= m) {
-                        trace.add(v.clone());
                         finalD = d;
                         break search;
                     }
@@ -520,7 +519,9 @@ public final class EditDiff {
             int x = n;
             int y = m;
             for (int d = finalD; d > 0; d--) {
-                int[] vp = trace.get(d - 1);
+                // trace[d] (snapshot taken at the start of step d) holds the v-state
+                // after step d-1 — the state the step-d move was decided against.
+                int[] vp = trace.get(d);
                 int k = x - y;
                 int prevK;
                 boolean down;

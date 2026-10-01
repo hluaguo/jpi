@@ -198,6 +198,42 @@ class EditDiffTest {
     }
 
     @Test
+    void displayDiffForABlockReplacedByAnUnrelatedShorterOne() {
+        // no common lines at all: the Myers backtrack must stay in bounds
+        EditDiff.DiffString r = EditDiff.generateDiffString(
+                "a\nb\nc\nd\ne\nf\n", "zzz\n");
+
+        assertEquals("""
+                -1 a
+                -2 b
+                -3 c
+                -4 d
+                -5 e
+                -6 f
+                +1 zzz""",
+                r.diff());
+        assertEquals(1, r.firstChangedLine());
+    }
+
+    @Test
+    void displayDiffForABlockReplacedByAnUnrelatedLongerOne() {
+        EditDiff.DiffString r = EditDiff.generateDiffString(
+                "zzz\n", "p\nq\nr\ns\nt\nu\nv\n");
+
+        assertEquals("""
+                -1 zzz
+                +1 p
+                +2 q
+                +3 r
+                +4 s
+                +5 t
+                +6 u
+                +7 v""",
+                r.diff());
+        assertEquals(1, r.firstChangedLine());
+    }
+
+    @Test
     void displayDiffCollapsesLongUnchangedRuns() {
         StringBuilder old = new StringBuilder();
         for (int i = 1; i <= 12; i++) {
