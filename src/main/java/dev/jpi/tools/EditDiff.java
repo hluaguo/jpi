@@ -86,15 +86,7 @@ public final class EditDiff {
             int end = lineEnd == -1 ? n : lineEnd;
             int lastKept = sb.length();  // end of the last non-[ \t] char on this line
             for (int j = i; j < end; j++) {
-                char c = text.charAt(j);
-                char mapped = switch (c) {
-                    case '\u2018', '\u2019' -> '\'';
-                    case '\u201C', '\u201D' -> '"';
-                    case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212' -> '-';
-                    case '\u00A0', '\u2000', '\u2001', '\u2002', '\u2003', '\u2004', '\u2005',
-                         '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000' -> ' ';
-                    default -> c;
-                };
+                char mapped = mapLookalike(text.charAt(j));
                 sb.append(mapped);
                 if (mapped != ' ' && mapped != '\t') {
                     lastKept = sb.length();
@@ -107,6 +99,18 @@ public final class EditDiff {
             i = end + 1;
         }
         return sb.toString();
+    }
+
+    /* Unicode look-alikes models emit mapped to their ASCII twins (identity for everything else). */
+    private static char mapLookalike(char c) {
+        return switch (c) {
+            case '\u2018', '\u2019' -> '\'';
+            case '\u201C', '\u201D' -> '"';
+            case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212' -> '-';
+            case '\u00A0', '\u2000', '\u2001', '\u2002', '\u2003', '\u2004', '\u2005',
+                 '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000' -> ' ';
+            default -> c;
+        };
     }
 
     /** Find {@code oldText} in {@code content}: exact match first, then a match in fuzzy-normalized space. */
@@ -172,7 +176,16 @@ public final class EditDiff {
             int index;
             int matchLength;
             int occurrences;
-            int exact = replacementBase.indexOf(edit.oldText());
+            /*
+             * In fuzzy space the base is normalized: it contains no look-alike
+             * characters and no whitespace directly before a newline, so an
+             * oldText with either cannot match it verbatim — the exact scan
+             * would only burn a full pass before missing. (Whitespace at the
+             * very end of an oldText without a trailing newline can still match
+             * mid-line, so it alone proves nothing.)
+             */
+            boolean exactPossible = !(anyNeedsFuzzy && cannotAppearInNormalizedBase(edit.oldText()));
+            int exact = exactPossible ? replacementBase.indexOf(edit.oldText()) : -1;
             if (exact >= 0) {
                 index = exact;
                 matchLength = edit.oldText().length();
@@ -362,6 +375,19 @@ public final class EditDiff {
         return count;
     }
 
+    private static boolean cannotAppearInNormalizedBase(String oldText) {
+        for (int i = 0; i < oldText.length(); i++) {
+            char c = oldText.charAt(i);
+            if (mapLookalike(c) != c) {
+                return true;
+            }
+            if ((c == ' ' || c == '\t') && i + 1 < oldText.length() && oldText.charAt(i + 1) == '\n') {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean singleEdit(List<Edit> edits) {
         return edits.size() == 1;
     }
@@ -427,8 +453,9 @@ public final class EditDiff {
         List<String> a = splitLines(oldContent);
         List<String> b = splitLines(newContent);
         List<DiffPart> parts = diffParts(a, b);
+        int maxLineNum = Math.max(jsLineCount(a, oldContent), jsLineCount(b, newContent));
         return new DiffAndPatch(
-                renderDiffString(parts, oldContent, newContent, 4),
+                renderDiffString(parts, maxLineNum, 4),
                 renderUnifiedPatch(path, parts, a, b, 4));
     }
 
@@ -512,10 +539,13 @@ public final class EditDiff {
 
     private static DiffString renderDiffString(List<DiffPart> parts, String oldContent, String newContent,
                                                 int contextLines) {
+        return renderDiffString(parts, Math.max(countJsSplitLines(oldContent), countJsSplitLines(newContent)),
+                contextLines);
+    }
+
+    private static DiffString renderDiffString(List<DiffPart> parts, int maxLineNum, int contextLines) {
         List<String> out = new ArrayList<>();
 
-        // width from the line counts of both sides, JS split semantics (trailing "" counts)
-        int maxLineNum = Math.max(countJsSplitLines(oldContent), countJsSplitLines(newContent));
         int width = String.valueOf(maxLineNum).length();
         String dots = " " + " ".repeat(width) + " ...";
 
@@ -624,6 +654,11 @@ public final class EditDiff {
         return count;
     }
 
+    /* Same count from already-split lines (they keep terminators, so a trailing newline is one more). */
+    private static int jsLineCount(List<String> lines, String content) {
+        return lines.size() + (content.endsWith("\n") ? 1 : 0);
+    }
+
     // ------------------------------------------------------------- line diff
 
     /*
@@ -637,18 +672,20 @@ public final class EditDiff {
         return diffParts(splitLines(oldContent), splitLines(newContent));
     }
 
-    static List<DiffPart> diffParts(List<String> a, List<String> b) {
+    static List<DiffPart> diffParts(List<String> aList, List<String> bList) {
+        String[] a = aList.toArray(new String[0]);
+        String[] b = bList.toArray(new String[0]);
         int prefix = 0;
-        while (prefix < a.size() && prefix < b.size() && a.get(prefix).equals(b.get(prefix))) {
+        while (prefix < a.length && prefix < b.length && a[prefix].equals(b[prefix])) {
             prefix++;
         }
         int suffix = 0;
-        while (suffix < a.size() - prefix && suffix < b.size() - prefix
-                && a.get(a.size() - 1 - suffix).equals(b.get(b.size() - 1 - suffix))) {
+        while (suffix < a.length - prefix && suffix < b.length - prefix
+                && a[a.length - 1 - suffix].equals(b[b.length - 1 - suffix])) {
             suffix++;
         }
-        List<String> midA = a.subList(prefix, a.size() - suffix);
-        List<String> midB = b.subList(prefix, b.size() - suffix);
+        String[] midA = Arrays.copyOfRange(a, prefix, a.length - suffix);
+        String[] midB = Arrays.copyOfRange(b, prefix, b.length - suffix);
 
         final int EQUAL = 0;
         final int REMOVE = 1;
@@ -657,12 +694,12 @@ public final class EditDiff {
         }
         List<Op> ops = new ArrayList<>();
 
-        int n = midA.size();
-        int m = midB.size();
+        int n = midA.length;
+        int m = midB.length;
         int max = n + m;
         if (max > 0) {
-            String[] aArr = midA.toArray(new String[0]);
-            String[] bArr = midB.toArray(new String[0]);
+            String[] aArr = midA;
+            String[] bArr = midB;
             int[] v = new int[2 * max + 3];
             List<int[]> trace = new ArrayList<>();
             int finalD = -1;
@@ -732,7 +769,7 @@ public final class EditDiff {
 
         List<DiffPart> parts = new ArrayList<>();
         if (prefix > 0) {
-            parts.add(DiffPart.equal(stripTerminators(a.subList(0, prefix))));
+            parts.add(DiffPart.equal(stripTerminators(Arrays.asList(a).subList(0, prefix))));
         }
         int i = 0;
         while (i < ops.size()) {
@@ -766,7 +803,8 @@ public final class EditDiff {
             }
         }
         if (suffix > 0) {
-            parts.add(DiffPart.equal(stripTerminators(a.subList(a.size() - suffix, a.size()))));
+            parts.add(DiffPart.equal(stripTerminators(
+                    Arrays.asList(a).subList(a.length - suffix, a.length))));
         }
         return parts;
     }
