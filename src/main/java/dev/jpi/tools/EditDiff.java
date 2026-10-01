@@ -598,6 +598,8 @@ public final class EditDiff {
         int m = midB.size();
         int max = n + m;
         if (max > 0) {
+            String[] aArr = midA.toArray(new String[0]);
+            String[] bArr = midB.toArray(new String[0]);
             int[] v = new int[2 * max + 3];
             List<int[]> trace = new ArrayList<>();
             int finalD = -1;
@@ -614,7 +616,7 @@ public final class EditDiff {
                         x = v[max + 1 + k - 1] + 1;
                     }
                     int y = x - k;
-                    while (x < n && y < m && midA.get(x).equals(midB.get(y))) {
+                    while (x < n && y < m && aArr[x].equals(bArr[y])) {
                         x++;
                         y++;
                     }
@@ -628,9 +630,9 @@ public final class EditDiff {
             int x = n;
             int y = m;
             for (int d = finalD; d > 0; d--) {
-                // trace[d] (window snapshot taken at the start of step d) holds the
-                // v-state after step d-1 — the state the step-d move was decided
-                // against. Entry for diagonal k sits at index d + k.
+                // The row snapshotted at the start of step d holds the v-state after
+                // step d-1 — the state the step-d move was decided against. Entry
+                // for diagonal k sits at index d + k.
                 int[] vp = trace.get(d);
                 int k = x - y;
                 int prevK;
@@ -647,20 +649,20 @@ public final class EditDiff {
                 while (x > prevX && y > prevY) {
                     x--;
                     y--;
-                    ops.add(new Op(EQUAL, midA.get(x)));
+                    ops.add(new Op(EQUAL, aArr[x]));
                 }
                 if (down) {
                     y--;
-                    ops.add(new Op(INSERT, midB.get(y)));
+                    ops.add(new Op(INSERT, bArr[y]));
                 } else {
                     x--;
-                    ops.add(new Op(REMOVE, midA.get(x)));
+                    ops.add(new Op(REMOVE, aArr[x]));
                 }
             }
             while (x > 0 && y > 0) {
                 x--;
                 y--;
-                ops.add(new Op(EQUAL, midA.get(x)));
+                ops.add(new Op(EQUAL, aArr[x]));
             }
         }
         Collections.reverse(ops);
