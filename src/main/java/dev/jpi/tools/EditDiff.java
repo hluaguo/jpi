@@ -93,11 +93,21 @@ public final class EditDiff {
 
     /** Find {@code oldText} in {@code content}: exact match first, then a match in fuzzy-normalized space. */
     public static FuzzyMatchResult fuzzyFindText(String content, String oldText) {
+        return fuzzyFindText(content, oldText, null);
+    }
+
+    /*
+     * preNormalizedContent (when non-null) is content already passed through
+     * normalizeForFuzzyMatch — callers that normalized a base once for a whole
+     * edit batch skip the per-edit full pass. Normalization is idempotent, so
+     * this only removes redundant work, never changes the result.
+     */
+    static FuzzyMatchResult fuzzyFindText(String content, String oldText, String preNormalizedContent) {
         int exact = content.indexOf(oldText);
         if (exact >= 0) {
             return new FuzzyMatchResult(true, exact, oldText.length(), false, content);
         }
-        String normalizedContent = normalizeForFuzzyMatch(content);
+        String normalizedContent = preNormalizedContent != null ? preNormalizedContent : normalizeForFuzzyMatch(content);
         String normalizedOldText = normalizeForFuzzyMatch(oldText);
         int fuzzy = normalizedContent.indexOf(normalizedOldText);
         if (fuzzy >= 0) {
@@ -141,13 +151,17 @@ public final class EditDiff {
 
         List<int[]> matches = new ArrayList<>();  // {matchIndex, matchLength, editIndex}
         List<String> newTexts = new ArrayList<>();
+        String uniquenessBase = null;  // normalized space, computed at most once for the batch
         for (int i = 0; i < normalized.size(); i++) {
             Edit edit = normalized.get(i);
-            FuzzyMatchResult result = fuzzyFindText(replacementBase, edit.oldText());
+            FuzzyMatchResult result = fuzzyFindText(replacementBase, edit.oldText(), replacementBase);
             if (!result.found()) {
                 throw new IllegalArgumentException(notFoundMessage(edits, i, path));
             }
-            int occurrences = countOccurrences(replacementBase, edit.oldText());
+            if (uniquenessBase == null) {
+                uniquenessBase = anyNeedsFuzzy ? replacementBase : normalizeForFuzzyMatch(replacementBase);
+            }
+            int occurrences = countOccurrences(uniquenessBase, edit.oldText());
             if (occurrences > 1) {
                 throw new IllegalArgumentException(duplicateMessage(edits, i, path, occurrences));
             }
@@ -223,15 +237,15 @@ public final class EditDiff {
         return out.toString();
     }
 
-    private static int countOccurrences(String content, String oldText) {
-        String normalized = normalizeForFuzzyMatch(content);
+    /* Counts needle occurrences in already-normalized content; only the needle needs normalizing. */
+    private static int countOccurrences(String normalizedContent, String oldText) {
         String needle = normalizeForFuzzyMatch(oldText);
         if (needle.isEmpty()) {
             return 0;
         }
         int count = 0;
         int idx = 0;
-        while ((idx = normalized.indexOf(needle, idx)) != -1) {
+        while ((idx = normalizedContent.indexOf(needle, idx)) != -1) {
             count++;
             idx += needle.length();
         }
