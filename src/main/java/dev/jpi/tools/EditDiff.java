@@ -1,6 +1,7 @@
 package dev.jpi.tools;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -395,9 +396,7 @@ public final class EditDiff {
         List<String> out = new ArrayList<>();
 
         // width from the line counts of both sides, JS split semantics (trailing "" counts)
-        int maxLineNum = Math.max(
-                oldContent.split("\\n", -1).length,
-                newContent.split("\\n", -1).length);
+        int maxLineNum = Math.max(countJsSplitLines(oldContent), countJsSplitLines(newContent));
         int width = String.valueOf(maxLineNum).length();
         String dots = " " + " ".repeat(width) + " ...";
 
@@ -486,7 +485,24 @@ public final class EditDiff {
     }
 
     private static String pad(int n, int width) {
-        return String.format("%" + width + "d", n);
+        String digits = Integer.toString(n);
+        int padding = width - digits.length();
+        if (padding <= 0) {
+            return digits;
+        }
+        char[] out = new char[width];
+        Arrays.fill(out, 0, padding, ' ');
+        digits.getChars(0, digits.length(), out, padding);
+        return new String(out);
+    }
+
+    /* split("\\n", -1).length without splitting: number of separators plus one. */
+    private static int countJsSplitLines(String content) {
+        int count = 1;
+        for (int i = content.indexOf('\n'); i >= 0; i = content.indexOf('\n', i + 1)) {
+            count++;
+        }
+        return count;
     }
 
     // ------------------------------------------------------------- line diff
