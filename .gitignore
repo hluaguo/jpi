@@ -11,3 +11,4 @@ REPORT.md
 
 # demo runtime artifact (Demo.java writes it)
 demo.txt
+.auto/
