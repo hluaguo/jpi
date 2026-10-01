@@ -1,0 +1,1 @@
+{"model":"deepseek-flash","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"system","content":"You are a senior Java developer. Output only code, no prose."},{"role":"user","content":"Write a single Java class implementing a fixed-capacity ring buffer of ints with javadoc on every method: put, take, size, isEmpty."}]}
