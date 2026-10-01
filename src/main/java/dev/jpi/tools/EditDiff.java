@@ -73,22 +73,39 @@ public final class EditDiff {
      * models habitually emit (curly quotes, en/em dashes, NBSP and friends) back
      * to their ASCII twins, then drop per-line trailing whitespace. Normalizing
      * before the whitespace strip matters: a trailing NBSP is trailing whitespace
-     * only after it becomes a space.
+     * only after it becomes a space. Single pass, line by line — a multiline
+     * regex here costs an order of magnitude more than the mapping itself.
      */
     public static String normalizeForFuzzyMatch(String text) {
-        StringBuilder sb = new StringBuilder(text.length());
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            sb.append(switch (c) {
-                case '\u2018', '\u2019' -> "'";
-                case '\u201C', '\u201D' -> "\"";
-                case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212' -> "-";
-                case '\u00A0', '\u2000', '\u2001', '\u2002', '\u2003', '\u2004', '\u2005',
-                     '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000' -> " ";
-                default -> String.valueOf(c);
-            });
+        int n = text.length();
+        StringBuilder sb = new StringBuilder(n);
+        int i = 0;
+        while (i < n) {
+            int lineEnd = text.indexOf('\n', i);
+            int end = lineEnd == -1 ? n : lineEnd;
+            int lastKept = sb.length();  // end of the last non-[ \t] char on this line
+            for (int j = i; j < end; j++) {
+                char c = text.charAt(j);
+                char mapped = switch (c) {
+                    case '\u2018', '\u2019' -> '\'';
+                    case '\u201C', '\u201D' -> '"';
+                    case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212' -> '-';
+                    case '\u00A0', '\u2000', '\u2001', '\u2002', '\u2003', '\u2004', '\u2005',
+                         '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000' -> ' ';
+                    default -> c;
+                };
+                sb.append(mapped);
+                if (mapped != ' ' && mapped != '\t') {
+                    lastKept = sb.length();
+                }
+            }
+            sb.setLength(lastKept);
+            if (lineEnd != -1) {
+                sb.append('\n');
+            }
+            i = end + 1;
         }
-        return sb.toString().replaceAll("(?m)[ \t]+$", "");
+        return sb.toString();
     }
 
     /** Find {@code oldText} in {@code content}: exact match first, then a match in fuzzy-normalized space. */
