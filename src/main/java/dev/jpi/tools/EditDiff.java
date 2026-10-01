@@ -317,9 +317,29 @@ public final class EditDiff {
     }
 
     public static String generateUnifiedPatch(String path, String oldContent, String newContent, int contextLines) {
-        List<String> a = splitLines(oldContent);
-        List<String> b = splitLines(newContent);
-        List<LineChange> changes = lineChanges(oldContent, newContent);
+        return renderUnifiedPatch(path, diffParts(oldContent, newContent),
+                splitLines(oldContent), splitLines(newContent), contextLines);
+    }
+
+    /** Display diff plus unified patch, from one shared line diff. */
+    public record DiffAndPatch(DiffString diff, String patch) {
+    }
+
+    /*
+     * The edit tool needs both renderings of the same change; computing them
+     * separately runs Myers (and the line splits) twice. One parts pass feeds
+     * both renderers here.
+     */
+    public static DiffAndPatch generateDiffAndPatch(String path, String oldContent, String newContent) {
+        List<DiffPart> parts = diffParts(oldContent, newContent);
+        return new DiffAndPatch(
+                renderDiffString(parts, oldContent, newContent, 4),
+                renderUnifiedPatch(path, parts, splitLines(oldContent), splitLines(newContent), 4));
+    }
+
+    private static String renderUnifiedPatch(String path, List<DiffPart> parts,
+                                             List<String> a, List<String> b, int contextLines) {
+        List<LineChange> changes = lineChanges(parts);
 
         StringBuilder patch = new StringBuilder();
         patch.append("--- ").append(path).append('\n');
@@ -392,7 +412,11 @@ public final class EditDiff {
     }
 
     public static DiffString generateDiffString(String oldContent, String newContent, int contextLines) {
-        List<DiffPart> parts = diffParts(oldContent, newContent);
+        return renderDiffString(diffParts(oldContent, newContent), oldContent, newContent, contextLines);
+    }
+
+    private static DiffString renderDiffString(List<DiffPart> parts, String oldContent, String newContent,
+                                                int contextLines) {
         List<String> out = new ArrayList<>();
 
         // width from the line counts of both sides, JS split semantics (trailing "" counts)
@@ -643,9 +667,8 @@ public final class EditDiff {
         return parts;
     }
 
-    static List<LineChange> lineChanges(String oldContent, String newContent) {
+    static List<LineChange> lineChanges(List<DiffPart> parts) {
         List<LineChange> changes = new ArrayList<>();
-        List<DiffPart> parts = diffParts(oldContent, newContent);
         int ai = 0;
         int bi = 0;
         int i = 0;

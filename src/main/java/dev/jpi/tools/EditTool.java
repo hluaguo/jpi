@@ -93,18 +93,17 @@ public final class EditTool implements AgentTool {
 
             EditDiff.AppliedEdits applied =
                     EditDiff.applyEditsToNormalizedContent(normalized, edits, path.toString());
-            EditDiff.DiffString diff =
-                    EditDiff.generateDiffString(applied.baseContent(), applied.newContent());
+            EditDiff.DiffAndPatch rendered = EditDiff.generateDiffAndPatch(
+                    path.toString(), applied.baseContent(), applied.newContent());
 
             String finalContent = bom.bom() + EditDiff.restoreLineEndings(applied.newContent(), ending);
             Files.writeString(path, finalContent, StandardCharsets.UTF_8);
 
             Map<String, Object> details = new LinkedHashMap<>();
-            details.put("diff", diff.diff());
-            details.put("patch", EditDiff.generateUnifiedPatch(
-                    path.toString(), applied.baseContent(), applied.newContent()));
-            if (diff.firstChangedLine() != null) {
-                details.put("firstChangedLine", diff.firstChangedLine());
+            details.put("diff", rendered.diff().diff());
+            details.put("patch", rendered.patch());
+            if (rendered.diff().firstChangedLine() != null) {
+                details.put("firstChangedLine", rendered.diff().firstChangedLine());
             }
             return new AgentToolResult(
                     List.of(new Content.Text("Successfully replaced " + edits.size()
