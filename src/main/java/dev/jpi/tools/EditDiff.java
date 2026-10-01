@@ -248,37 +248,95 @@ public final class EditDiff {
      */
     private static String applyReplacementsPreservingUnchangedLines(
             String originalContent, String baseContent, List<int[]> matches, List<String> newTexts) {
-        List<String> originalLines = splitOnNewlines(originalContent);
         List<String> baseLines = splitOnNewlines(baseContent);
-
-        boolean[] touched = new boolean[baseLines.size()];
-        int offset = 0;
-        for (int i = 0; i < baseLines.size(); i++) {
-            int lineStart = offset;
-            int lineEnd = offset + baseLines.get(i).length();
-            for (int[] m : matches) {
-                if (m[0] < lineEnd && m[0] + m[1] > lineStart) {
-                    touched[i] = true;
-                }
-            }
-            offset = lineEnd + 1;
-        }
 
         StringBuilder applied = new StringBuilder(baseContent);
         for (int i = matches.size() - 1; i >= 0; i--) {
             int[] m = matches.get(i);
             applied.replace(m[0], m[0] + m[1], newTexts.get(m[2]));
         }
-        List<String> rewrittenBase = splitOnNewlines(applied.toString());
 
-        StringBuilder out = new StringBuilder(originalContent.length());
-        for (int i = 0; i < originalLines.size(); i++) {
-            out.append(touched[i] ? rewrittenBase.get(i) : originalLines.get(i));
-            if (i < originalLines.size() - 1) {
+        /*
+         * Walk the base line grid once. A run of lines touched by matches emits
+         * its whole image from the applied base — base offsets shifted by the
+         * length drift of the replacements folded so far — so a replacement
+         * that changes the line count cannot shift or drop lines the way a 1:1
+         * index mapping did. Untouched lines copy straight from the original by
+         * char range (normalization preserves line count, the grids advance in
+         * lockstep), which is also why no per-line substrings are needed for
+         * the untouched majority.
+         */
+        StringBuilder out = new StringBuilder(originalContent.length() + 16);
+        int originalOffset = 0;  // start of the current line in the original
+        int baseOffset = 0;      // start of the current line in the base
+        int drift = 0;           // applied offset = base offset + drift, left of the pending match
+        int mi = 0;              // next match not yet folded into drift
+        boolean separator = false;
+        int i = 0;
+        while (i < baseLines.size()) {
+            int lineEnd = baseOffset + baseLines.get(i).length();
+            int[] pending = mi < matches.size() ? matches.get(mi) : null;
+            boolean touched = pending != null && pending[0] < lineEnd && pending[0] + pending[1] > baseOffset;
+            if (!touched) {
+                if (separator) {
+                    out.append('\n');
+                }
+                int originalEnd = originalLineEnd(originalContent, originalOffset);
+                out.append(originalContent, originalOffset, originalEnd);
+                separator = true;
+                originalOffset = originalEnd + 1;
+                baseOffset = lineEnd + 1;
+                i++;
+                continue;
+            }
+            int runBaseStart = baseOffset;
+            int runBaseEnd = lineEnd;
+            int driftBefore = drift;
+            int j = i;
+            int jBase = baseOffset;
+            while (true) {
+                int jEnd = jBase + baseLines.get(j).length();
+                while (mi < matches.size()
+                        && matches.get(mi)[0] < jEnd && matches.get(mi)[0] + matches.get(mi)[1] > jBase) {
+                    runBaseEnd = Math.max(runBaseEnd, matches.get(mi)[0] + matches.get(mi)[1]);
+                    drift += newTexts.get(matches.get(mi)[2]).length() - matches.get(mi)[1];
+                    mi++;
+                }
+                int nextStart = jEnd + 1;
+                boolean nextTouched = j + 1 < baseLines.size()
+                        && (runBaseEnd > nextStart
+                            || (mi < matches.size()
+                                && matches.get(mi)[0] < nextStart + baseLines.get(j + 1).length()
+                                && matches.get(mi)[0] + matches.get(mi)[1] > nextStart));
+                if (!nextTouched) {
+                    baseOffset = nextStart;
+                    break;
+                }
+                j++;
+                jBase = nextStart;
+            }
+            if (separator) {
                 out.append('\n');
             }
+            out.append(applied, runBaseStart + driftBefore, runBaseEnd + drift);
+            separator = true;
+            for (int l = i; l <= j; l++) {
+                originalOffset = advanceLine(originalContent, originalOffset);
+            }
+            i = j + 1;
         }
         return out.toString();
+    }
+
+    /* End of the line starting at {@code from}, its newline excluded (content length at EOF). */
+    private static int originalLineEnd(String content, int from) {
+        int lineEnd = content.indexOf('\n', from);
+        return lineEnd == -1 ? content.length() : lineEnd;
+    }
+
+    /* Offset just past the line starting at {@code from} (its newline included). */
+    private static int advanceLine(String content, int from) {
+        return originalLineEnd(content, from) + 1;
     }
 
     /* split("\\n", -1) without the regex engine. */
@@ -351,8 +409,9 @@ public final class EditDiff {
     }
 
     public static String generateUnifiedPatch(String path, String oldContent, String newContent, int contextLines) {
-        return renderUnifiedPatch(path, diffParts(oldContent, newContent),
-                splitLines(oldContent), splitLines(newContent), contextLines);
+        List<String> a = splitLines(oldContent);
+        List<String> b = splitLines(newContent);
+        return renderUnifiedPatch(path, diffParts(a, b), a, b, contextLines);
     }
 
     /** Display diff plus unified patch, from one shared line diff. */
@@ -365,10 +424,12 @@ public final class EditDiff {
      * both renderers here.
      */
     public static DiffAndPatch generateDiffAndPatch(String path, String oldContent, String newContent) {
-        List<DiffPart> parts = diffParts(oldContent, newContent);
+        List<String> a = splitLines(oldContent);
+        List<String> b = splitLines(newContent);
+        List<DiffPart> parts = diffParts(a, b);
         return new DiffAndPatch(
                 renderDiffString(parts, oldContent, newContent, 4),
-                renderUnifiedPatch(path, parts, splitLines(oldContent), splitLines(newContent), 4));
+                renderUnifiedPatch(path, parts, a, b, 4));
     }
 
     private static String renderUnifiedPatch(String path, List<DiffPart> parts,
@@ -573,8 +634,10 @@ public final class EditDiff {
      * per step is what made large edit distances allocation-heavy.
      */
     static List<DiffPart> diffParts(String oldContent, String newContent) {
-        List<String> a = splitLines(oldContent);
-        List<String> b = splitLines(newContent);
+        return diffParts(splitLines(oldContent), splitLines(newContent));
+    }
+
+    static List<DiffPart> diffParts(List<String> a, List<String> b) {
         int prefix = 0;
         while (prefix < a.size() && prefix < b.size() && a.get(prefix).equals(b.get(prefix))) {
             prefix++;

@@ -135,6 +135,42 @@ class EditDiffTest {
     }
 
     @Test
+    void fuzzyEditWithLineCountGrowingNewTextKeepsAllNewLines() {
+        String content = "keep1\nold line \u2018one\u2019\nold line \u2018two\u2019\nkeep2\n";
+        String curlyOld = "old line \u2018one\u2019  \nold line \u2018two\u2019  ";
+        EditDiff.Edit edit = new EditDiff.Edit(curlyOld, "new A\nnew B\nnew C");
+
+        EditDiff.AppliedEdits applied =
+                EditDiff.applyEditsToNormalizedContent(content, List.of(edit), "f.txt");
+
+        assertEquals("keep1\nnew A\nnew B\nnew C\nkeep2\n", applied.newContent());
+    }
+
+    @Test
+    void fuzzyEditWithLineCountShrinkingNewTextKeepsAllNewLines() {
+        String content = "keep1\nold \u2018a\u2019\nold b\nold c\nkeep2\n";
+        String curlyOld = "old \u2018a\u2019 \nold b \nold c ";  // trailing spaces force fuzzy
+        EditDiff.Edit edit = new EditDiff.Edit(curlyOld, "single");
+
+        EditDiff.AppliedEdits applied =
+                EditDiff.applyEditsToNormalizedContent(content, List.of(edit), "f.txt");
+
+        assertEquals("keep1\nsingle\nkeep2\n", applied.newContent());
+    }
+
+    @Test
+    void fuzzyEditsOnTheSameLongLineAreBothApplied() {
+        String content = "start \u2018alpha\u2019 middle \u2018omega\u2019 end\n";
+        EditDiff.Edit first = new EditDiff.Edit("\u2018alpha\u2019\u00A0", "[A]");   // NBSP suffix forces fuzzy
+        EditDiff.Edit second = new EditDiff.Edit("\u2018omega\u2019\u00A0", "[O]");
+
+        EditDiff.AppliedEdits applied = EditDiff.applyEditsToNormalizedContent(
+                content, List.of(first, second), "f.txt");
+
+        assertEquals("start [A] middle [O] end\n", applied.newContent());
+    }
+
+    @Test
     void stripsAUTF8Bom() {
         assertEquals(new EditDiff.StripBom("", "a"), EditDiff.stripBom("a"));
         assertEquals(new EditDiff.StripBom("\uFEFF", "a"), EditDiff.stripBom("\uFEFFa"));
