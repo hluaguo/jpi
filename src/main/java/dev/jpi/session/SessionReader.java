@@ -1,15 +1,14 @@
 package dev.jpi.session;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import dev.jpi.agent.AgentEvent;
 import dev.jpi.json.Json;
@@ -18,12 +17,27 @@ import dev.jpi.json.Json;
  * Reads recorded sessions. Tolerates a <em>torn final line</em> — a crash mid-write
  * leaves an unparsable tail, and everything before it must survive; corruption
  * anywhere earlier is an error, not something to silently skip.
+ *
+ * <p>The envelope binds in one pass ({@code readValue} into a record): parse-tree
+ * + {@code convertValue} re-traversed every line twice, which is the read-back
+ * cost of a whole session. The lookahead keeps torn-tail semantics — only the
+ * last line may be corrupt, so a line is only known tolerable once the next one
+ * arrives.
  */
 public final class SessionReader {
 
+    /**
+     * The recorder's line shape, bound in one pass. Boxed fields so a line missing
+     * the envelope (valid JSON, no ts/event) is rejected as corrupt instead of
+     * binding silently to defaults — pi's reader skips junk lines; jpi's stricter
+     * contract keeps them distinct from a torn tail.
+     */
+    private record Line(Long ts, AgentEvent event) {
+    }
+
     /** All {@code *.jsonl} files in {@code dir}, sorted by name. */
     public static List<Path> listSessions(Path dir) throws IOException {
-        try (Stream<Path> entries = Files.list(dir)) {
+        try (var entries = Files.list(dir)) {
             return entries
                     .filter(p -> p.getFileName().toString().endsWith(".jsonl"))
                     .sorted()
@@ -32,42 +46,53 @@ public final class SessionReader {
     }
 
     public static List<SessionRecord> read(Path file) throws IOException {
-        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
         List<SessionRecord> records = new ArrayList<>();
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i).strip();
-            if (line.isEmpty()) {
-                continue;
+        try (BufferedReader in = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String prev = in.readLine();
+            if (prev == null) {
+                return records;
             }
-            boolean tornTail = i == lines.size() - 1;
-            ObjectNode parsed = parse(line);
-            if (parsed == null || !isWellFormed(parsed)) {
-                // structurally invalid (valid JSON, but no ts/event envelope) is the
-                // same corruption a torn write leaves — pi's reader skips junk lines;
-                // jpi's stricter contract still tolerates a torn final line
-                if (tornTail) {
-                    break;
+            while (true) {
+                String next = in.readLine();
+                addLine(records, prev, next == null, file);
+                if (next == null) {
+                    return records;
                 }
-                throw new IOException("corrupt session line " + (i + 1) + " in " + file);
+                prev = next;
             }
-            records.add(new SessionRecord(parsed.get("ts").asLong(),
-                    Json.MAPPER.convertValue(parsed.get("event"), AgentEvent.class)));
         }
-        return records;
     }
 
-    /** A line is well-formed when it carries the recorder's envelope: a numeric ts and an event object. */
-    private static boolean isWellFormed(ObjectNode parsed) {
-        return parsed.hasNonNull("ts") && parsed.get("ts").isNumber()
-                && parsed.has("event") && parsed.get("event").isObject();
-    }
-
-    private static ObjectNode parse(String line) {
+    /**
+     * Parses one line into {@code records}; a corrupt line (unparsable JSON or a
+     * valid line without the ts/event envelope) is the torn tail only when it is
+     * the file's last.
+     */
+    private static void addLine(List<SessionRecord> records, String line, boolean last, Path file)
+            throws IOException {
+        line = line.strip();
+        if (line.isEmpty()) {
+            return;
+        }
         try {
-            return (ObjectNode) Json.MAPPER.readTree(line);
+            Line parsed = Json.MAPPER.readValue(line, Line.class);
+            if (parsed.ts() != null && parsed.event() != null) {
+                records.add(new SessionRecord(parsed.ts(), parsed.event()));
+                return;
+            }
         } catch (JsonProcessingException e) {
-            return null;
+            if (!last) {
+                throw corrupt(file, e);
+            }
+            return; // torn final line — everything before it survives
         }
+        if (!last) {
+            throw corrupt(file, new IOException("line without ts/event envelope"));
+        }
+    }
+
+    private static IOException corrupt(Path file, Exception cause) {
+        return new IOException("corrupt session line in " + file, cause);
     }
 
     private SessionReader() {
