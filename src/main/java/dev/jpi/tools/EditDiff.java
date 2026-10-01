@@ -567,8 +567,10 @@ public final class EditDiff {
 
     /*
      * Myers O(ND) with common prefix/suffix trimming. The trim is what keeps the
-     * trace (O(D^2) memory) small for real edits, which always share long runs
-     * of unchanged lines at both ends of the file.
+     * trace small for real edits, which always share long runs of unchanged
+     * lines at both ends of the file. Trace rows snapshot only the live
+     * [-d, d] window of the diagonal array — copying the full 2*(n+m)+3 slots
+     * per step is what made large edit distances allocation-heavy.
      */
     static List<DiffPart> diffParts(String oldContent, String newContent) {
         List<String> a = splitLines(oldContent);
@@ -601,7 +603,9 @@ public final class EditDiff {
             int finalD = -1;
             search:
             for (int d = 0; d <= max; d++) {
-                trace.add(v.clone());
+                int[] snapshot = new int[2 * d + 1];
+                System.arraycopy(v, max + 1 - d, snapshot, 0, 2 * d + 1);
+                trace.add(snapshot);
                 for (int k = -d; k <= d; k += 2) {
                     int x;
                     if (k == -d || (k != d && v[max + 1 + k - 1] < v[max + 1 + k + 1])) {
@@ -624,20 +628,21 @@ public final class EditDiff {
             int x = n;
             int y = m;
             for (int d = finalD; d > 0; d--) {
-                // trace[d] (snapshot taken at the start of step d) holds the v-state
-                // after step d-1 — the state the step-d move was decided against.
+                // trace[d] (window snapshot taken at the start of step d) holds the
+                // v-state after step d-1 — the state the step-d move was decided
+                // against. Entry for diagonal k sits at index d + k.
                 int[] vp = trace.get(d);
                 int k = x - y;
                 int prevK;
                 boolean down;
-                if (k == -d || (k != d && vp[max + 1 + k - 1] < vp[max + 1 + k + 1])) {
+                if (k == -d || (k != d && vp[d + k - 1] < vp[d + k + 1])) {
                     prevK = k + 1;
                     down = true;
                 } else {
                     prevK = k - 1;
                     down = false;
                 }
-                int prevX = vp[max + 1 + prevK];
+                int prevX = vp[d + prevK];
                 int prevY = prevX - prevK;
                 while (x > prevX && y > prevY) {
                     x--;
